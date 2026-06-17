@@ -1,0 +1,295 @@
+{% extends "base.html" %}
+{% block title %}SimbioClip — Job {{ job.id[:8] }}{% endblock %}
+
+{% block head_extra %}
+<style>
+    .detail-wrap { max-width: 1180px; margin: 0 auto; padding: 28px 28px 8px; }
+    .back-link { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600;
+        color: var(--slate); margin-bottom: 18px; padding: 7px 14px; border-radius: 9999px; border: 1px solid var(--hairline);
+        background: var(--canvas); transition: background .15s ease, border-color .15s ease; }
+    .back-link:hover { background: var(--surface-soft); border-color: var(--steel); }
+    .detail-head { background: var(--canvas); border: 1px solid var(--hairline); border-radius: 16px;
+        box-shadow: var(--shadow-2); padding: 24px; }
+    .detail-head .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .detail-head h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.3px; word-break: break-all; line-height: 1.35; }
+    .detail-head .meta { font-size: 12px; color: var(--stone); margin-top: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .detail-head .meta code { font-family: var(--font-mono); font-size: 11px; background: var(--surface-soft);
+        color: var(--slate); padding: 2px 6px; border-radius: 5px; }
+    .trim-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600;
+        color: var(--slate); background: var(--surface); border: 1px solid var(--hairline); border-radius: 8px;
+        padding: 5px 10px; cursor: pointer; transition: all .15s ease; }
+    .trim-btn:hover { background: var(--surface-soft); border-color: var(--steel); color: var(--ink); }
+    .trim-slider-wrap { margin: 16px 0; }
+    .trim-slider-wrap label { font-size: 11px; font-weight: 600; color: var(--steel); display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .trim-slider-wrap input[type="range"] { width: 100%; accent-color: var(--brand-green-mid); }
+    .trim-times { display: flex; justify-content: space-between; font-size: 12px; color: var(--stone); margin-top: 4px; }
+    .clip-edit-btn { background: transparent; border: none; cursor: pointer; opacity: 0.4; padding: 2px;
+        color: var(--stone); border-radius: 4px; transition: opacity .15s ease, background .15s ease; }
+    .clip-edit-btn:hover { opacity: 1; background: var(--surface-soft); color: var(--ink); }
+    .clip-opt-select { font-size: 11px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--hairline);
+        background: var(--canvas); color: var(--slate); flex: 1; min-width: 0; cursor: pointer; }
+    .clip-opt-select:hover { border-color: var(--steel); }
+    .clip-opt-select:disabled { opacity: 0.6; cursor: wait; }
+
+    .pipeline-steps { margin-top: 18px; border-top: 1px solid var(--hairline); padding-top: 16px; }
+    .pipeline-steps-head { display: flex; align-items: baseline; gap: 10px; font-size: 12px; font-weight: 700;
+        text-transform: uppercase; letter-spacing: 0.6px; color: var(--steel); margin-bottom: 10px; }
+    .pipeline-steps-hint { font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--stone); }
+    .pipeline-steps-list { display: flex; flex-direction: column; gap: 6px; }
+    .pstep { display: flex; align-items: center; gap: 11px; padding: 9px 12px; border-radius: 10px;
+        border: 1px solid var(--hairline); background: var(--canvas); }
+    .pstep-icon { width: 22px; height: 22px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 50%; }
+    .pstep-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hairline-strong); }
+    .pstep-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+    .pstep-label { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+    .pstep-desc { font-size: 11.5px; color: var(--stone); }
+    .pstep-retry { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; font-size: 12px; font-weight: 600;
+        color: var(--slate); background: var(--surface-soft); border: 1px solid var(--hairline); border-radius: 8px;
+        padding: 5px 11px; cursor: pointer; transition: all .15s ease; }
+    .pstep-retry:hover { background: var(--brand-green-soft); border-color: var(--brand-green-mid); color: var(--brand-green-dark); }
+    /* state accents */
+    .pstep-done .pstep-icon { background: var(--brand-green-soft); color: var(--brand-green-dark); }
+    .pstep-running { border-color: var(--brand-green-mid); background: var(--surface-feature); }
+    .pstep-failed { border-color: #F3B6B2; background: #FFF4F3; }
+    .pstep-failed .pstep-icon { background: #FFE5E3; color: #BE342D; }
+    .pstep-pending { opacity: 0.7; }
+</style>
+{% endblock %}
+
+{% block content %}
+<main class="detail-wrap">
+    <a class="back-link" href="/">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+        Back to jobs
+    </a>
+
+    <div id="job-detail-body">
+        {% include "partials/job_detail.html" %}
+    </div>
+</main>
+
+<!-- Trim modal -->
+<div class="modal" id="trim-modal" onclick="if(event.target===this) closeTrimModal()">
+    <div class="modal-card" style="max-width:520px;">
+        <div class="modal-head">
+            <div>
+                <h2>Trim clip</h2>
+                <p id="trim-clip-label">Adjust the start and end times</p>
+            </div>
+            <button class="modal-close" onclick="closeTrimModal()" title="Close">×</button>
+        </div>
+        <video class="modal-video" id="trim-video" controls playsinline style="max-height:50vh;"></video>
+        <div class="trim-slider-wrap">
+            <label><span>Start</span><span id="trim-start-val">0s</span></label>
+            <input type="range" id="trim-start-slider" min="0" max="100" value="0" step="0.05" oninput="updateTrimDisplay('start')">
+        </div>
+        <div class="trim-slider-wrap">
+            <label><span>End</span><span id="trim-end-val">0s</span></label>
+            <input type="range" id="trim-end-slider" min="0" max="100" value="100" step="0.05" oninput="updateTrimDisplay('end')">
+        </div>
+        <div class="trim-times">
+            <span id="trim-source-range"></span>
+            <span id="trim-duration"></span>
+        </div>
+        <div style="display:flex; gap:10px; margin-top:16px;">
+            <button class="btn-primary" style="flex:1;" onclick="applyTrim()">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="20 6 9 17 4 12"></polyline>
+                </svg>
+                Apply trim
+            </button>
+            <button class="btn-secondary" onclick="closeTrimModal()">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let trimJobId = null, trimClipId = null, trimClipStart = 0, trimClipEnd = 0, trimClipDuration = 0;
+
+    function openTrimModal(jobId, clipId, clipStart, clipEnd, clipDuration, videoUrl) {
+        trimJobId = jobId; trimClipId = clipId;
+        trimClipStart = clipStart; trimClipEnd = clipEnd; trimClipDuration = clipDuration;
+        document.getElementById('trim-clip-label').innerText = 'Clip: ' + clipId.slice(0,8);
+        document.getElementById('trim-source-range').innerText = 'Source: ' + clipStart.toFixed(1) + 's – ' + clipEnd.toFixed(1) + 's';
+        var video = document.getElementById('trim-video');
+        video.src = videoUrl;
+        video.load();
+        var startSlider = document.getElementById('trim-start-slider');
+        var endSlider = document.getElementById('trim-end-slider');
+        startSlider.max = clipDuration;
+        endSlider.max = clipDuration;
+        startSlider.value = 0;
+        endSlider.value = clipDuration;
+        updateTrimDisplay();
+        document.getElementById('trim-modal').classList.add('open');
+        setTimeout(function() { video.play().catch(function(){}); }, 200);
+    }
+
+    function closeTrimModal() {
+        var video = document.getElementById('trim-video');
+        video.pause(); video.removeAttribute('src'); video.load();
+        document.getElementById('trim-modal').classList.remove('open');
+    }
+
+    function updateTrimDisplay(movedHandle) {
+        var startSlider = document.getElementById('trim-start-slider');
+        var endSlider = document.getElementById('trim-end-slider');
+        var startVal = parseFloat(startSlider.value);
+        var endVal = parseFloat(endSlider.value);
+        if (startVal >= endVal) {
+            endSlider.value = Math.min(endVal + 0.5, parseFloat(endSlider.max));
+            endVal = parseFloat(endSlider.value);
+        }
+        document.getElementById('trim-start-val').innerText = startVal.toFixed(1) + 's';
+        document.getElementById('trim-end-val').innerText = endVal.toFixed(1) + 's';
+        document.getElementById('trim-duration').innerText = 'Trim: ' + (endVal - startVal).toFixed(1) + 's';
+        // Live preview: scrub video to the handle the user is dragging
+        if (movedHandle) {
+            var video = document.getElementById('trim-video');
+            if (video && !isNaN(video.duration)) {
+                video.pause();
+                video.currentTime = movedHandle === 'end' ? endVal : startVal;
+            }
+        }
+    }
+
+    function applyTrim() {
+        var start = parseFloat(document.getElementById('trim-start-slider').value);
+        var end = parseFloat(document.getElementById('trim-end-slider').value);
+        if (start >= end) { showToast('End must be later than start', true); return; }
+        var absStart = trimClipStart + start;
+        var absEnd = trimClipStart + end;
+        var formData = new FormData();
+        formData.append('trim_start', absStart.toString());
+        formData.append('trim_end', absEnd.toString());
+        fetch('/jobs/' + trimJobId + '/clips/' + trimClipId + '/trim', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer {{ api_token }}' },
+            body: formData
+        }).then(function(r) {
+            if (r.ok) return r.text();
+            throw new Error('Trim failed');
+        }).then(function(html) {
+            document.getElementById('job-detail-body').innerHTML = html;
+            closeTrimModal();
+            showToast('Clip trimmed successfully');
+        }).catch(function(e) {
+            showToast('Error: ' + e.message, true);
+        });
+    }
+
+    function cycleClipTitle(jobId, clipId, variants) {
+        if (!variants || variants.length < 2) return;
+        var currentTitle = variants[0];
+        // Dedupe and skip the current title to find the next distinct variant
+        var seen = {};
+        seen[currentTitle] = true;
+        var next = null;
+        for (var i = 1; i < variants.length; i++) {
+            if (!seen[variants[i]]) { next = variants[i]; break; }
+        }
+        if (!next) return; // No distinct alternative left
+        var fd = new FormData();
+        fd.append('title', next);
+        fetch('/jobs/' + jobId + '/clips/' + clipId + '/meta', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer {{ api_token }}' },
+            body: fd,
+        }).then(function(r) { return r.ok ? r.text() : Promise.reject(new Error('Update failed')); })
+          .then(function(html) {
+              document.getElementById('job-detail-body').innerHTML = html;
+              showToast('Title swapped');
+          })
+          .catch(function(e) { showToast('Error: ' + e.message, true); });
+    }
+
+    function editClipField(jobId, clipId, field, currentValue) {
+        var newValue = window.prompt('Edit ' + field, currentValue || '');
+        if (newValue === null) return;
+        newValue = newValue.trim();
+        if (!newValue || newValue === currentValue) return;
+        var fd = new FormData();
+        fd.append(field, newValue);
+        fetch('/jobs/' + jobId + '/clips/' + clipId + '/meta', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer {{ api_token }}' },
+            body: fd,
+        }).then(function(r) {
+            if (r.ok) return r.text();
+            throw new Error('Update failed');
+        }).then(function(html) {
+            document.getElementById('job-detail-body').innerHTML = html;
+            showToast(field === 'title' ? 'Title updated' : 'Hook updated');
+        }).catch(function(e) {
+            showToast('Error: ' + e.message, true);
+        });
+    }
+
+    function rerenderClipOption(jobId, clipId, field, value, selectEl) {
+        if (!confirm('Re-render this clip with the new ' + field.replace('_', ' ') + '? Existing version will be replaced.')) {
+            // Restore previous selection by re-rendering the partial later — for now just bail
+            return;
+        }
+        var fd = new FormData();
+        fd.append(field, value);
+        selectEl.disabled = true;
+        var prevText = selectEl.options[selectEl.selectedIndex].text;
+        selectEl.options[selectEl.selectedIndex].text = prevText + ' …';
+        fetch('/jobs/' + jobId + '/clips/' + clipId + '/rerender', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer {{ api_token }}' },
+            body: fd,
+        }).then(function(r) {
+            if (r.ok) return r.text();
+            return r.text().then(function(t) { throw new Error(t || 'Rerender failed'); });
+        }).then(function(html) {
+            document.getElementById('job-detail-body').innerHTML = html;
+            showToast('Clip re-rendered');
+        }).catch(function(e) {
+            showToast('Error: ' + e.message, true);
+            selectEl.disabled = false;
+            selectEl.options[selectEl.selectedIndex].text = prevText;
+        });
+    }
+
+    function retryStep(jobId, step, label) {
+        if (!confirm('Re-run from “' + label + '”?\nThis step and every step after it will be recomputed.')) return;
+        fetch('/jobs/' + jobId + '/retry/' + step, {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer {{ api_token }}' },
+        }).then(function(r) {
+            if (r.ok) return r.text();
+            return r.text().then(function(t) { throw new Error(t || 'Retry failed'); });
+        }).then(function() {
+            showToast('Re-running from ' + label + '…');
+            // Reload so the live-progress WebSocket reconnects for the re-queued job.
+            setTimeout(function() { location.reload(); }, 400);
+        }).catch(function(e) {
+            showToast('Error: ' + e.message, true);
+        });
+    }
+
+    // WebSocket real-time updates
+    (function() {
+        var jobId = '{{ job.id }}';
+        var status = '{{ job.status.split(" ")[0] }}';
+        if (status === 'done' || status === 'failed') return;
+        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        var ws = new WebSocket(protocol + '//' + window.location.host + '/ws/job/' + jobId);
+        ws.onmessage = function(event) {
+            var body = document.getElementById('job-detail-body');
+            if (body) body.innerHTML = event.data;
+        };
+        ws.onclose = function() {
+            setTimeout(function() {
+                if (document.getElementById('job-detail-body')) {
+                    location.reload();
+                }
+            }, 5000);
+        };
+    })();
+</script>
+{% endblock %}

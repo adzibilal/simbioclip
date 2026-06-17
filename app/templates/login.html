@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SimbioClip — Sign in</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --brand-green: #00ED64;
+            --brand-green-dark: #00684A;
+            --brand-green-soft: #C0FAE6;
+            --brand-teal-deep: #001E2B;
+            --canvas: #FFFFFF;
+            --surface-soft: #F1F5F4;
+            --hairline: #E8EDEB;
+            --hairline-strong: #C1C7C6;
+            --ink: #001E2B;
+            --steel: #5C6C75;
+            --stone: #889397;
+            --on-primary: #00231A;
+            --on-dark-muted: rgba(255, 255, 255, 0.7);
+            --accent-pink: #FF6960;
+            --font-sans: 'Euclid Circular A', 'Figtree', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: var(--font-sans);
+            color: var(--ink);
+            min-height: 100vh;
+            display: flex; align-items: center; justify-content: center;
+            padding: 24px;
+            background:
+                radial-gradient(1000px 480px at 80% -10%, rgba(0, 237, 100, 0.18), transparent 60%),
+                radial-gradient(760px 420px at 10% 120%, rgba(1, 107, 248, 0.16), transparent 60%),
+                var(--brand-teal-deep);
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .login-shell { width: 100%; max-width: 400px; }
+
+        .brand {
+            display: flex; align-items: center; justify-content: center; gap: 11px;
+            margin-bottom: 26px;
+        }
+        .brand-mark {
+            width: 40px; height: 40px; border-radius: 10px;
+            background: var(--brand-green);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .brand-mark svg { width: 22px; height: 22px; }
+        .brand-name { font-size: 22px; font-weight: 700; letter-spacing: -0.3px; color: #fff; }
+
+        .login-card {
+            background: var(--canvas);
+            border-radius: 18px;
+            padding: 36px 32px;
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.35);
+            text-align: center;
+        }
+
+        .eyebrow {
+            font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
+            color: var(--brand-green-dark);
+        }
+        h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.4px; margin: 6px 0 6px; }
+        .subtitle { color: var(--steel); font-size: 14px; margin-bottom: 26px; }
+
+        .form-group { text-align: left; margin-bottom: 18px; }
+        label {
+            display: block; font-size: 11px; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.8px;
+            color: var(--steel); margin-bottom: 7px;
+        }
+        input {
+            width: 100%; height: 46px; padding: 0 14px;
+            background: var(--canvas);
+            border: 1px solid var(--hairline-strong);
+            border-radius: 8px;
+            color: var(--ink); font-family: var(--font-sans); font-size: 15px;
+            outline: none; transition: border-color .15s ease;
+        }
+        input::placeholder { color: var(--stone); }
+        input:focus { border: 2px solid var(--brand-green-dark); padding: 0 13px; }
+
+        .btn-submit {
+            width: 100%; padding: 13px; margin-top: 4px;
+            background: var(--brand-green); color: var(--on-primary);
+            border: none; border-radius: 9999px;
+            font-family: var(--font-sans); font-size: 15px; font-weight: 600;
+            cursor: pointer; transition: background .15s ease, box-shadow .15s ease;
+        }
+        .btn-submit:hover { background: #00D659; box-shadow: 0 6px 16px rgba(0, 237, 100, 0.35); }
+
+        .error-message {
+            background: #FFF1F0; border: 1px solid #FFD9D6; color: #BE342D;
+            padding: 11px 14px; border-radius: 10px; font-size: 13px;
+            margin-bottom: 18px; text-align: left;
+            animation: shake .3s ease;
+        }
+
+        .foot-note {
+            margin-top: 22px; color: var(--on-dark-muted);
+            font-size: 12px; text-align: center;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-shell">
+        <div class="brand">
+            <div class="brand-mark">
+                <svg viewBox="0 0 24 24" fill="none" stroke="#00231A" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2.5"></rect>
+                </svg>
+            </div>
+            <div class="brand-name">SimbioClip</div>
+        </div>
+
+        <div class="login-card">
+            <div class="eyebrow">Private dashboard</div>
+            <h1>Welcome back</h1>
+            <p class="subtitle">Self-hosted vertical AI clipper</p>
+
+            {% if error %}
+            <div class="error-message">{{ error }}</div>
+            {% endif %}
+
+            <form action="/login" method="POST">
+                <div class="form-group">
+                    <label for="token-input">Access token</label>
+                    <input type="password" id="token-input" name="token" placeholder="Enter your API token" required autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn-submit">Unlock dashboard</button>
+            </form>
+        </div>
+
+        <p class="foot-note">Authorized single-user access · token-protected</p>
+    </div>
+</body>
+</html>

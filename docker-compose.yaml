@@ -1,0 +1,56 @@
+services:
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - API_TOKEN=${API_TOKEN}
+      - LLM_ROUTERS=${LLM_ROUTERS}
+      - STT_MODE=${STT_MODE}
+      - STT_BASE_URL=${STT_BASE_URL}
+      - STT_API_KEY=${STT_API_KEY}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-240}
+      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-1}
+    volumes:
+      - clip_data:/app/data
+    depends_on:
+      - redis
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    command: python3 -m app.worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - API_TOKEN=${API_TOKEN}
+      - LLM_ROUTERS=${LLM_ROUTERS}
+      - STT_MODE=${STT_MODE}
+      - STT_BASE_URL=${STT_BASE_URL}
+      - STT_API_KEY=${STT_API_KEY}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-240}
+      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-1}
+    volumes:
+      - clip_data:/app/data
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  clip_data:
+  redis_data:

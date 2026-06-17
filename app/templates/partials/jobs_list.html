@@ -1,0 +1,95 @@
+{% if not jobs %}
+<div class="empty-state">
+    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect>
+    </svg>
+    <h3>No clipping jobs yet</h3>
+    <p>Submit a video above to start your first pipeline.</p>
+</div>
+{% endif %}
+
+{% for job in jobs %}
+{% set clean_status = job.status.split(' ')[0] %}
+<div class="job-row" id="job-row-{{ job.id }}">
+    <input type="checkbox" class="job-check" value="{{ job.id }}" id="chk-{{ job.id }}">
+    {% if job.thumbnail_url %}
+    <div class="job-thumb-wrap">
+        <img src="{{ job.thumbnail_url }}" alt="" loading="lazy">
+    </div>
+    {% else %}
+    <div class="job-thumb-placeholder">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect>
+        </svg>
+    </div>
+    {% endif %}
+
+    <a class="job-row-link" href="/job/{{ job.id }}">
+        <div class="title" title="{{ job.source_url or job.file_name }}">
+            {% if job.source_url %}{{ job.source_url }}{% else %}{{ job.file_name }}{% endif %}
+        </div>
+        <div class="sub">
+            <code>{{ job.id[:8] }}</code> · {{ job.created_at[:19].replace('T', ' ') }} UTC
+            {% if job.content_type %}
+            <span class="ct-badge ct-{{ job.content_type }}">{{ job.content_type.replace('_', ' ') }}</span>
+            {% endif %}
+            {% if job.aspect_ratio and job.aspect_ratio != '9:16' %}
+            <span class="ct-badge ct-tutorial">{{ job.aspect_ratio }}</span>
+            {% endif %}
+            {% if job.error %}· <span style="color: var(--accent-pink); font-weight:600;">failed</span>{% endif %}
+        </div>
+    </a>
+
+    <div class="job-row-right">
+        {% if job.clips %}<span class="clipcount">{{ job.clips|length }} clip{{ 's' if job.clips|length != 1 else '' }}</span>{% endif %}
+        <div class="status-pill status-{{ clean_status }}">
+            <span class="pulse-dot dot-{{ clean_status }}"></span>
+            <span>{{ job.status.replace('_', ' ') }}</span>
+        </div>
+        {% set rendered = job.clips|selectattr('download_url')|list %}
+        {% if job.status == 'failed' or (job.status == 'done' and not rendered) %}
+        <button class="row-retry"
+                title="Retry this job"
+                hx-post="/jobs/{{ job.id }}/retry"
+                hx-target="#job-row-{{ job.id }}"
+                hx-swap="outerHTML"
+                hx-on::after-request="document.body.dispatchEvent(new Event('reload-jobs'))">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+        </button>
+        {% endif %}
+        {% if job.status == 'done' %}
+        <button class="row-retry"
+                title="Re-render clips (keep source, re-run only rendering)"
+                hx-post="/jobs/{{ job.id }}/rerender"
+                hx-target="#job-row-{{ job.id }}"
+                hx-swap="outerHTML"
+                hx-on::after-request="document.body.dispatchEvent(new Event('reload-jobs'))">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+        </button>
+        {% endif %}
+        <button class="row-del"
+                title="Delete job and all clips"
+                hx-delete="/jobs/{{ job.id }}"
+                hx-confirm="Delete this job and remove all its clips from disk? This cannot be undone."
+                hx-target="#job-row-{{ job.id }}"
+                hx-swap="outerHTML">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+        </button>
+        <a class="row-chev" href="/job/{{ job.id }}" title="Open job">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="9 18 15 12 9 6"></polyline>
+            </svg>
+        </a>
+    </div>
+</div>
+{% endfor %}
+
+{% if has_active %}
+<div hx-get="/partials/jobs-list" hx-trigger="load delay:3s" hx-target="#jobs-container" hx-swap="innerHTML"></div>
+{% endif %}

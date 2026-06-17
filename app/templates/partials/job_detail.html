@@ -1,0 +1,251 @@
+{% set clean_status = job.status.split(' ')[0] %}
+<div class="detail-head">
+    <div class="top">
+        <div style="min-width:0;">
+            <h1>{% if job.source_url %}{{ job.source_url }}{% else %}{{ job.file_name }}{% endif %}</h1>
+            <div class="meta">
+                <code>{{ job.id }}</code>
+                <span>· created {{ job.created_at[:19].replace('T', ' ') }} UTC</span>
+                {% if job.clips %}<span>· {{ job.clips|length }} clip{{ 's' if job.clips|length != 1 else '' }}</span>{% endif %}
+                {% if job.content_type %}
+                <span class="ct-badge ct-{{ job.content_type }}">{{ job.content_type.replace('_', ' ') }}</span>
+                {% endif %}
+                {% if job.speaker_count and job.speaker_count > 1 %}
+                <span class="sp-badge">{{ job.speaker_count }} speakers</span>
+                {% endif %}
+                {% if job.aspect_ratio and job.aspect_ratio != '9:16' %}
+                <span class="ct-badge ct-tutorial">{{ job.aspect_ratio }}</span>
+                {% endif %}
+                {% if job.audio_ducking %}
+                <span class="ct-badge ct-vertical">duck</span>
+                {% endif %}
+            </div>
+        </div>
+        <div class="status-pill status-{{ clean_status }}">
+            <span class="pulse-dot dot-{{ clean_status }}"></span>
+            <span>{{ job.status.replace('_', ' ') }}</span>
+        </div>
+    </div>
+
+    {% if job.status == 'queued' %}
+        <p class="progress-note" style="margin-top:14px;">Waiting for the background worker to pick up the job…</p>
+    {% elif 'downloading' in job.status %}
+        <div class="dl-progress" style="margin-top:14px;">
+            <div class="dl-progress-row">
+                <p class="progress-note" style="margin:0;"><span class="spinner"></span> Downloading the video from source (prefers H.264)…</p>
+                <div class="dl-progress-stats">
+                    {% if job.download_pct is not none %}<span class="pct-badge">{{ '%.0f' % job.download_pct }}%</span>{% endif %}
+                    {% if job.download_downloaded_mb is not none %}
+                    <span class="dl-size">
+                        {{ '%.1f' % job.download_downloaded_mb }} MB{% if job.download_total_mb %} / {{ '%.1f' % job.download_total_mb }} MB{% endif %}
+                    </span>
+                    {% endif %}
+                </div>
+            </div>
+            <div class="progress-bar {% if job.download_pct is none %}progress-bar--indeterminate{% endif %}">
+                <div class="progress-bar__fill" style="width: {{ '%.1f' % job.download_pct if job.download_pct is not none else 0 }}%;"></div>
+            </div>
+        </div>
+    {% elif 'transcribing' in job.status %}
+        <p class="progress-note" style="margin-top:14px;"><span class="spinner"></span> Running speech-to-text to extract timestamps…</p>
+    {% elif 'finding_moments' in job.status %}
+        <p class="progress-note" style="margin-top:14px;"><span class="spinner"></span> Analyzing the transcript with the LLM to score moments…</p>
+    {% elif 'classifying' in job.status %}
+        <p class="progress-note" style="margin-top:14px;"><span class="spinner"></span> Detecting content type and analyzing scene composition…</p>
+    {% elif 'diarizing' in job.status %}
+        <p class="progress-note" style="margin-top:14px;"><span class="spinner"></span> Identifying who is speaking across the transcript…</p>
+    {% elif 'rendering' in job.status %}
+        {% set sp = job.status.split(' ') %}
+        <p class="progress-note" style="margin-top:14px;">
+            <span class="spinner"></span>
+            FFmpeg is reframing to {{ job.aspect_ratio or '9:16' }} using <strong>{{ job.content_type or 'auto' }}</strong> layout and burning captions…
+            {% if sp|length >= 3 %}<span class="pct-badge">{{ sp[-1] }}</span>{% endif %}
+        </p>
+    {% endif %}
+
+    {% if job.status == 'done' %}
+    <div style="margin-top:12px;">
+        <button class="btn-secondary" style="font-size:13px; padding:7px 14px;"
+                title="Re-render all clips using current settings (no re-download)"
+                hx-post="/jobs/{{ job.id }}/rerender"
+                hx-target="#job-detail-body"
+                hx-swap="innerHTML">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:6px;">
+                <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+            </svg>
+            Re-render
+        </button>
+    </div>
+    {% endif %}
+
+    {% if job.error %}
+    <div class="error-box">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:1px;">
+            <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <div><strong>Execution failed</strong><span>{{ job.error }}</span></div>
+    </div>
+    {% endif %}
+
+    {% set idle = clean_status in ['done', 'failed'] %}
+    <div class="pipeline-steps">
+        <div class="pipeline-steps-head">
+            <span>Pipeline</span>
+            {% if idle %}<span class="pipeline-steps-hint">retry any step — later steps re-run too</span>{% endif %}
+        </div>
+        <div class="pipeline-steps-list">
+            {% for step in job.pipeline_steps() %}
+            <div class="pstep pstep-{{ step.state }}">
+                <span class="pstep-icon">
+                    {% if step.state == 'done' %}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    {% elif step.state == 'running' %}
+                    <span class="spinner" style="width:13px;height:13px;"></span>
+                    {% elif step.state == 'failed' %}
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                    {% else %}
+                    <span class="pstep-dot"></span>
+                    {% endif %}
+                </span>
+                <div class="pstep-main">
+                    <span class="pstep-label">{{ step.label }}</span>
+                    <span class="pstep-desc">{{ step.desc }}</span>
+                </div>
+                {% if idle %}
+                <button type="button" class="pstep-retry" title="Re-run from “{{ step.label }}”"
+                        onclick="retryStep('{{ job.id }}','{{ step.id }}','{{ step.label }}')">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path>
+                    </svg>
+                    Retry
+                </button>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+{% if job.clips %}
+<div class="clips-head">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect>
+    </svg>
+    {{ job.clips|length }} extracted clip{{ 's' if job.clips|length != 1 else '' }}
+</div>
+<div class="clips-grid">
+    {% for clip in job.clips %}
+    {% set clip_src = clip.download_url ~ '?token=' ~ api_token %}
+    {% set thumb_src = (clip.thumbnail_url ~ '?token=' ~ api_token) if clip.thumbnail_url else '' %}
+    <div class="clip-card">
+        {% if clip.download_url %}
+        <div class="clip-video-wrap" data-url="{{ clip_src }}" data-title="{{ clip.title }}" onclick="openClipModal(this)">
+            <video src="{{ clip_src }}#t=0.5" {% if thumb_src %}poster="{{ thumb_src }}"{% endif %} preload="metadata" muted playsinline></video>
+            <span class="clip-overlay-badge">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
+                {{ clip.score }}
+            </span>
+            <button type="button" class="clip-expand" tabindex="-1" title="Play preview">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>
+            </button>
+            <span class="clip-duration-badge">{{ '%.0f' | format(clip.duration) }}s</span>
+            {% if clip.layout_used and clip.layout_used != 'Center Crop' %}
+            <span class="clip-layout-badge">{{ clip.layout_used }}</span>
+            {% endif %}
+            {% if clip.speaker_label %}
+            <span class="clip-speaker-badge">{{ clip.speaker_label }}</span>
+            {% endif %}
+            <div class="clip-play"><span><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg></span></div>
+        </div>
+        {% else %}
+        <div class="clip-video-wrap" style="display:flex; align-items:center; justify-content:center; cursor:default;">
+            <span class="spinner"></span>
+        </div>
+        {% endif %}
+
+        <div class="clip-body">
+            <div class="clip-title" title="{{ clip.title }}" style="display:flex; align-items:center; gap:6px;">
+                <span style="flex:1; overflow:hidden; text-overflow:ellipsis;">{{ clip.title }}</span>
+                {% if clip.title_alternatives %}
+                <button type="button" class="clip-edit-btn" title="Try alternative title"
+                        onclick="cycleClipTitle('{{ job.id }}','{{ clip.id }}',{{ ([clip.title] + clip.title_alternatives) | tojson }})">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path>
+                    </svg>
+                </button>
+                {% endif %}
+                <button type="button" class="clip-edit-btn" title="Edit title"
+                        onclick="editClipField('{{ job.id }}','{{ clip.id }}','title',{{ clip.title | tojson }})">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    </svg>
+                </button>
+            </div>
+            {% if clip.hook %}
+            <div class="clip-hook" style="display:flex; align-items:flex-start; gap:6px;">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0; margin-top:2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                <span style="flex:1;">{{ clip.hook }}</span>
+                <button type="button" class="clip-edit-btn" title="Edit hook"
+                        onclick="editClipField('{{ job.id }}','{{ clip.id }}','hook',{{ clip.hook | tojson }})">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                    </svg>
+                </button>
+            </div>
+            {% endif %}
+            {% if clip.reason %}<div class="clip-reason">{{ clip.reason }}</div>{% endif %}
+
+            {% if clip.download_url %}
+            <div class="clip-options" style="display:flex; gap:6px; margin-top:8px;">
+                <select class="clip-opt-select" title="Caption style"
+                        onchange="rerenderClipOption('{{ job.id }}','{{ clip.id }}','caption_style', this.value, this)">
+                    <option value="bold_pop"{% if (job.caption_style or 'bold_pop') == 'bold_pop' %} selected{% endif %}>Bold Pop</option>
+                    <option value="karaoke_highlight"{% if job.caption_style == 'karaoke_highlight' %} selected{% endif %}>Karaoke</option>
+                    <option value="neon"{% if job.caption_style == 'neon' %} selected{% endif %}>Neon</option>
+                    <option value="minimal"{% if job.caption_style == 'minimal' %} selected{% endif %}>Minimal</option>
+                    <option value="podcast"{% if job.caption_style == 'podcast' %} selected{% endif %}>Podcast</option>
+                </select>
+                <select class="clip-opt-select" title="Layout"
+                        onchange="rerenderClipOption('{{ job.id }}','{{ clip.id }}','layout_mode', this.value, this)">
+                    <option value="auto">Auto</option>
+                    <option value="face_track">Face Track</option>
+                    <option value="center_crop">Center</option>
+                    <option value="talking_head">Talking Head</option>
+                    <option value="split_cam">Split Cam</option>
+                </select>
+            </div>
+            {% endif %}
+
+            <div class="clip-foot">
+                {% if clip.download_url %}
+                <button type="button" class="btn-secondary" style="font-size:12px; padding:6px 10px; flex-shrink:0;"
+                        onclick="openTrimModal('{{ job.id }}','{{ clip.id }}',{{ clip.start }},{{ clip.end }},{{ clip.duration }},'{{ clip_src }}')">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line>
+                    </svg>
+                </button>
+                <a class="btn-download" href="{{ clip_src }}" download target="_blank" rel="noopener">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line>
+                    </svg>
+                    Download
+                </a>
+                {% else %}
+                <span class="clip-rendering">Rendering…</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% elif job.status in ['done'] %}
+<div class="empty-state">
+    <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line>
+    </svg>
+    <h3>No clips were produced</h3>
+    <p>The pipeline finished but found no renderable moments.</p>
+</div>
+{% endif %}
+
+

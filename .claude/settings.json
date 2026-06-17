@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c \"import cv2; print\\('cv2', cv2.__version__\\); print\\('haar path', cv2.data.haarcascades\\); import os; print\\('frontal exists', os.path.exists\\(cv2.data.haarcascades+'haarcascade_frontalface_default.xml'\\)\\); print\\('profile exists', os.path.exists\\(cv2.data.haarcascades+'haarcascade_profileface.xml'\\)\\)\")",
+      "Bash(python3 -m py_compile app/pipeline/render.py app/pipeline/face_detect.py)",
+      "Bash(python3 -c \"import dotenv\")",
+      "Bash(docker version *)",
+      "Bash(docker compose *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8000/healthz)",
+      "Bash(python3 -m py_compile app/pipeline/face_detect.py app/pipeline/download.py)",
+      "Bash(python3 -m py_compile app/pipeline/face_detect.py app/pipeline/render.py)"
+    ]
+  }
+}

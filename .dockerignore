@@ -1,0 +1,52 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Local data — never want job artifacts inside the image
+data
+*.mp4
+*.mp3
+*.wav
+*.webm
+*.mkv
+
+# Python build artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.eggs
+.pytest_cache
+.mypy_cache
+.ruff_cache
+
+# Environments
+.env
+.env.local
+.venv
+venv
+env
+
+# Editors / OS
+.vscode
+.idea
+.DS_Store
+*.swp
+
+# Plans / notes
+PRD.md
+ONBOARDING.md
+README*
+
+# Docker itself
+Dockerfile
+.dockerignore
+docker-compose.yaml
+docker-compose*.yml
+
+# Misc
+*.log
+*.tmp
