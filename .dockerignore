@@ -44,7 +44,7 @@ README*
 # Docker itself
 Dockerfile
 .dockerignore
-docker-compose.yaml
+docker-compose*.yaml
 docker-compose*.yml
 
 # Misc

@@ -1,0 +1,68 @@
+# Coolify deployment compose — DO NOT use locally.
+# Local dev still uses docker-compose.yaml via ./run.sh (it keeps host port 8000).
+# In Coolify, set "Docker Compose Location" to /docker-compose.coolify.yaml.
+#
+# Differences vs the local file:
+#   - api uses `expose` (proxied by Coolify/Traefik) instead of host `ports`.
+#   - SERVICE_FQDN_API_8000 tells Coolify to generate a domain + route to port 8000.
+#   - redis is internal only (no published port).
+
+services:
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment:
+      - SERVICE_FQDN_API_8000=/          # Coolify: generate domain + route to port 8000
+      - REDIS_URL=redis://redis:6379/0
+      - API_TOKEN=${API_TOKEN}
+      - LLM_ROUTERS=${LLM_ROUTERS}
+      - STT_MODE=${STT_MODE}
+      - STT_BASE_URL=${STT_BASE_URL}
+      - STT_API_KEY=${STT_API_KEY}
+      - STT_MODEL=${STT_MODEL:-whisper-large-v3-turbo}
+      - STT_MODEL_FALLBACK=${STT_MODEL_FALLBACK:-whisper-large-v3}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-240}
+      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-1}
+    expose:
+      - "8000"
+    volumes:
+      - clip_data:/app/data
+    depends_on:
+      - redis
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    command: python3 -m app.worker
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - API_TOKEN=${API_TOKEN}
+      - LLM_ROUTERS=${LLM_ROUTERS}
+      - STT_MODE=${STT_MODE}
+      - STT_BASE_URL=${STT_BASE_URL}
+      - STT_API_KEY=${STT_API_KEY}
+      - STT_MODEL=${STT_MODEL:-whisper-large-v3-turbo}
+      - STT_MODEL_FALLBACK=${STT_MODEL_FALLBACK:-whisper-large-v3}
+      - LLM_TIMEOUT=${LLM_TIMEOUT:-240}
+      - LLM_MAX_RETRIES=${LLM_MAX_RETRIES:-1}
+    volumes:
+      - clip_data:/app/data
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data       # internal only — no published port
+
+volumes:
+  clip_data:
+  redis_data:
