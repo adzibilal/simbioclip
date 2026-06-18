@@ -80,7 +80,7 @@
 
     {% if clean_status in ['queued', 'downloading', 'transcribing', 'finding_moments', 'classifying', 'diarizing', 'rendering'] %}
     <div style="margin-top:12px;">
-        <button class="btn-danger" style="font-size:13px; padding:7px 14px;"
+        <button class="btn-secondary" style="font-size:13px; padding:7px 14px; color:var(--accent-pink); border-color:rgba(190,52,45,0.25);"
                 title="Cancel this running job"
                 hx-post="/jobs/{{ job.id }}/cancel"
                 hx-target="#job-detail-body"

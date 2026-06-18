@@ -272,16 +272,29 @@
         });
     }
 
-    // WebSocket real-time updates
+    // WebSocket real-time updates with notifications
     (function() {
         var jobId = '{{ job.id }}';
-        var status = '{{ job.status.split(" ")[0] }}';
-        if (status === 'done' || status === 'failed') return;
+        var prevStatus = '{{ job.status.split(" ")[0] }}';
+        if (prevStatus === 'done' || prevStatus === 'failed' || prevStatus === 'cancelled') return;
         var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         var ws = new WebSocket(protocol + '//' + window.location.host + '/ws/job/' + jobId);
         ws.onmessage = function(event) {
             var body = document.getElementById('job-detail-body');
             if (body) body.innerHTML = event.data;
+            // Detect status transitions for notifications
+            var pill = document.querySelector('.status-pill');
+            if (pill) {
+                var curStatus = pill.textContent.trim().toLowerCase().replace(/\s+/g, '_');
+                if (prevStatus === 'downloading' && curStatus !== 'downloading') {
+                    sendNotif('Download complete', 'Source video download finished for job ' + jobId.slice(0, 8));
+                }
+                if ((prevStatus === 'rendering' || prevStatus === 'rendered') && (curStatus === 'done' || curStatus === 'failed')) {
+                    var msg = curStatus === 'done' ? 'All clips rendered successfully' : 'Rendering failed';
+                    sendNotif('Render ' + (curStatus === 'done' ? 'complete' : 'failed'), msg + ' for job ' + jobId.slice(0, 8));
+                }
+                prevStatus = curStatus;
+            }
         };
         ws.onclose = function() {
             setTimeout(function() {

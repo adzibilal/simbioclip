@@ -638,5 +638,33 @@
             showToast("Something went wrong", true);
         }
     }
+
+    /* Track job status transitions for browser notifications on the dashboard */
+    (function() {
+        var jobStatuses = {};
+        document.body.addEventListener('htmx:afterSwap', function(e) {
+            if (e.detail.target.id !== 'jobs-container') return;
+            var rows = document.querySelectorAll('.job-row');
+            var fresh = {};
+            rows.forEach(function(row) {
+                var id = row.id.replace('job-row-', '');
+                var pill = row.querySelector('.status-pill');
+                if (!pill) return;
+                var status = pill.textContent.trim().toLowerCase().replace(/\s+/g, '_');
+                fresh[id] = status;
+                var prev = jobStatuses[id];
+                if (prev && prev !== status) {
+                    if (prev === 'downloading' && status !== 'downloading') {
+                        sendNotif('Download complete', 'Source video download finished for job ' + id.slice(0, 8));
+                    }
+                    if ((prev === 'rendering' || prev === 'rendered') && (status === 'done' || status === 'failed')) {
+                        var msg = status === 'done' ? 'All clips rendered successfully' : 'Rendering failed';
+                        sendNotif('Render ' + (status === 'done' ? 'complete' : 'failed'), msg + ' for job ' + id.slice(0, 8));
+                    }
+                }
+            });
+            jobStatuses = fresh;
+        });
+    })();
 </script>
 {% endblock %}

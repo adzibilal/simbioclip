@@ -461,6 +461,22 @@
                 if (!v.paused && !v.ended && v.currentTime > 0) { evt.preventDefault(); return; }
             }
         });
+
+        /* Browser notifications */
+        function requestNotifPermission() {
+            if (!("Notification" in window)) return;
+            if (Notification.permission === "default") {
+                Notification.requestPermission();
+            }
+        }
+        function sendNotif(title, body) {
+            if (!("Notification" in window) || Notification.permission !== "granted") return;
+            try {
+                const n = new Notification(title, { body: body, icon: "/favicon.ico" });
+                setTimeout(function() { n.close(); }, 8000);
+            } catch(e) {}
+        }
+        requestNotifPermission();
     </script>
     {% block scripts %}{% endblock %}
 </body>
