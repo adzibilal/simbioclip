@@ -1,20 +1,20 @@
 # SimbioClip
 
-Self-hosted AI video clipper — long-form video → vertical shorts dengan caption otomatis. $0 recurring.
+Self-hosted AI video clipper — long-form video → vertical shorts with auto-captions. $0 recurring.
 
-## Fitur
+## Features
 
-- Download video dari URL (YouTube, dll via yt-dlp) atau upload file
-- Transkrip + timestamp (STT via API router atau faster-whisper lokal)
-- Deteksi momen terbaik via LLM (skor + hook + judul)
-- Render klip vertical (9:16 / 1:1 / 4:5 / 16:9) dengan caption ter-burn
-- Multi layout: center-crop, split-cam, inset, face-track
-- Pilih resolusi download (360p–4K / Best)
-- Kustom caption style: Bold Pop, Neon, Minimal, Karaoke, Podcast
-- Dashboard web + HTMX live updates
+- Download video from URL (YouTube, etc. via yt-dlp) or upload a file
+- Speech-to-text with timestamps (API router or local faster-whisper)
+- Best moment detection via LLM (score + hook + title)
+- Render vertical clips (9:16 / 1:1 / 4:5 / 16:9) with burned-in captions
+- Multiple layouts: center-crop, split-cam, inset, face-track
+- Selectable download resolution (360p–4K / Best)
+- Custom caption styles: Bold Pop, Neon, Minimal, Karaoke, Podcast
+- Web dashboard with HTMX live updates
 - Async job queue (Redis + RQ)
 
-## Arsitektur
+## Architecture
 
 ```
                      ┌──────────────┐
@@ -40,35 +40,35 @@ Self-hosted AI video clipper — long-form video → vertical shorts dengan capt
    └─────────┘          └─────────────┘     └─────────────┘
 ```
 
-- **API** — FastAPI: menerima job, menyajikan dashboard, streaming status via WebSocket
-- **Worker** — RQ worker: menjalankan pipeline (download → transkrip → deteksi momen → render)
-- **Redis** — Antrian job + penyimpanan state
-- **LLM Router** — Eksternal (OpenAI-compatible): deteksi momen via LLM murah/gratis
+- **API** — FastAPI: accepts jobs, serves dashboard, streams status via WebSocket
+- **Worker** — RQ worker: runs the pipeline (download → transcribe → detect moments → render)
+- **Redis** — Job queue + state storage
+- **LLM Router** — External (OpenAI-compatible): moment detection via cheap/free LLMs
 
 ## Prerequisites
 
 - Docker & Docker Compose
-- VPS/min. 2GB RAM (tanpa Whisper lokal) atau 4GB+ (dengan Whisper lokal)
-- LLM endpoint OpenAI-compatible (gratis: Groq, OpenRouter, atau LiteLLM sendiri)
-- (Opsional) Cookies YouTube Netscape format untuk bypass bot detection
+- VPS with min. 2GB RAM (without local Whisper) or 4GB+ (with local Whisper)
+- OpenAI-compatible LLM endpoint (free options: Groq, OpenRouter, or your own LiteLLM)
+- (Optional) YouTube cookies in Netscape format to bypass bot detection
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `API_TOKEN` | `super-secret-admin-token` | Token auth dashboard & API |
-| `REDIS_URL` | `redis://redis:6379/0` | Koneksi Redis |
-| `LLM_ROUTERS` | JSON array | Daftar router LLM untuk moment detection |
-| `STT_MODE` | `local` | `router` (API) atau `local` (faster-whisper CPU) |
-| `STT_BASE_URL` | `""` | Base URL STT API (mode router) |
-| `STT_API_KEY` | `""` | API key STT (mode router) |
-| `STT_MODEL` | `whisper-large-v3-turbo` | Model STT utama |
-| `STT_MODEL_FALLBACK` | `whisper-large-v3` | Fallback model STT |
-| `LLM_TIMEOUT` | `240` | Timeout per request LLM (detik) |
-| `LLM_MAX_RETRIES` | `1` | Maks retry LLM |
-| `COOKIES_FILE` | `""` | Path ke cookies.txt Netscape format |
+| `API_TOKEN` | `super-secret-admin-token` | Auth token for dashboard & API |
+| `REDIS_URL` | `redis://redis:6379/0` | Redis connection string |
+| `LLM_ROUTERS` | JSON array | LLM router list for moment detection |
+| `STT_MODE` | `local` | `router` (API) or `local` (faster-whisper CPU) |
+| `STT_BASE_URL` | `""` | STT API base URL (router mode) |
+| `STT_API_KEY` | `""` | STT API key (router mode) |
+| `STT_MODEL` | `whisper-large-v3-turbo` | Primary STT model |
+| `STT_MODEL_FALLBACK` | `whisper-large-v3` | Fallback STT model |
+| `LLM_TIMEOUT` | `240` | Per-request LLM timeout (seconds) |
+| `LLM_MAX_RETRIES` | `1` | Max LLM retries |
+| `COOKIES_FILE` | `""` | Path to Netscape-format cookies.txt |
 
-### Format LLM_ROUTERS
+### LLM_ROUTERS Format
 
 ```json
 [
@@ -79,17 +79,17 @@ Self-hosted AI video clipper — long-form video → vertical shorts dengan capt
 
 ## Deployment
 
-### 1. Docker Compose (Local / VPS manual)
+### 1. Docker Compose (Local / VPS)
 
 ```bash
 git clone https://github.com/adzibilal/simbioclip.git
 cd simbioclip
 
 cp .env.example .env
-# Edit .env — isi API_TOKEN, LLM_ROUTERS, dll
+# Edit .env — fill in API_TOKEN, LLM_ROUTERS, etc.
 
 ./run.sh
-# atau manual:
+# or manually:
 docker compose build
 docker compose up -d
 ```
@@ -100,18 +100,18 @@ Dashboard: `http://localhost:8000`
 
 1. Coolify → **Projects** → **+ New Project** → `simbioclip`
 2. **+ New Resource** → **Docker Compose**
-3. Sumber **GitHub** → pilih repo `adzibilal/simbioclip`, branch `main`
+3. Source **GitHub** → select `adzibilal/simbioclip`, branch `main`
 4. **Compose file path**: `docker-compose.coolify.yaml`
-5. Isi environment variables (`API_TOKEN`, `LLM_ROUTERS`, dll) di tab **Environment**
-6. Set domain untuk service **api** di tab **Domains**
+5. Fill in environment variables (`API_TOKEN`, `LLM_ROUTERS`, etc.) in the **Environment** tab
+6. Set a domain for the **api** service in the **Domains** tab
 7. **Deploy**
 
-### 3. Manual ( tanpa Docker )
+### 3. Manual (without Docker)
 
 ```bash
 pip install -r requirements.txt
 
-# Jalankan Redis terpisah
+# Start Redis separately
 redis-server &
 
 # Worker
@@ -129,18 +129,18 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 | `GET` | `/` | Cookie | Dashboard |
 | `GET` | `/healthz` | - | Health check |
 | `POST` | `/preview` | Bearer | Preview video metadata |
-| `POST` | `/jobs` | Bearer | Buat job baru |
-| `GET` | `/jobs/{id}` | Bearer | Status job + clips |
-| `DELETE` | `/jobs/{id}` | Bearer | Hapus job |
-| `POST` | `/jobs/{id}/retry` | Bearer | Retry job |
-| `POST` | `/jobs/{id}/retry/{step}` | Bearer | Retry dari step tertentu |
-| `POST` | `/jobs/{id}/rerender` | Bearer | Re-render semua clips |
-| `POST` | `/jobs/{id}/clips/{cid}/rerender` | Bearer | Re-render satu clip |
-| `POST` | `/jobs/{id}/clips/{cid}/trim` | Bearer | Trim clip |
-| `GET` | `/jobs/{id}/clips/{cid}` | Bearer | Download clip |
-| `POST` | `/cleanup` | Bearer | Hapus job lama |
+| `POST` | `/jobs` | Bearer | Create a new job |
+| `GET` | `/jobs/{id}` | Bearer | Job status + clips |
+| `DELETE` | `/jobs/{id}` | Bearer | Delete a job |
+| `POST` | `/jobs/{id}/retry` | Bearer | Retry a job |
+| `POST` | `/jobs/{id}/retry/{step}` | Bearer | Retry from a specific step |
+| `POST` | `/jobs/{id}/rerender` | Bearer | Re-render all clips |
+| `POST` | `/jobs/{id}/clips/{cid}/rerender` | Bearer | Re-render a single clip |
+| `POST` | `/jobs/{id}/clips/{cid}/trim` | Bearer | Trim a clip |
+| `GET` | `/jobs/{id}/clips/{cid}` | Bearer | Download a clip |
+| `POST` | `/cleanup` | Bearer | Delete old jobs |
 
-### Contoh create job
+### Example: Create a Job
 
 ```bash
 curl -X POST https://clip.example.com/jobs \
@@ -156,25 +156,25 @@ curl -X POST https://clip.example.com/jobs \
 
 | Step | Description | Retryable |
 |------|-------------|-----------|
-| `download` | Download video via yt-dlp | Ya |
-| `transcribe` | Speech-to-text + cleanup | Ya |
-| `moments` | LLM scores clip-worthy moments | Ya |
-| `classify` | Deteksi content type / layout | Ya |
-| `diarize` | Identifikasi speaker | Ya |
-| `render` | Reframe + burn captions | Ya |
+| `download` | Download video via yt-dlp | Yes |
+| `transcribe` | Speech-to-text + cleanup | Yes |
+| `moments` | LLM scores clip-worthy moments | Yes |
+| `classify` | Detect content type / layout | Yes |
+| `diarize` | Identify speaker turns | Yes |
+| `render` | Reframe + burn captions | Yes |
 
 ## Development
 
 ```bash
-# Build tanpa cache
+# Full rebuild without cache
 ./run.sh rebuild
 
-# Logs
+# Tail logs
 ./run.sh logs
 
-# Shell ke container
+# Open a shell inside a container
 ./run.sh shell worker
 
-# Restart service tanpa rebuild
+# Restart services without rebuild
 ./run.sh restart
 ```
