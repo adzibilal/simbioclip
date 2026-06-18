@@ -157,20 +157,6 @@
         {% if clip.download_url %}
         <div class="clip-video-wrap" data-url="{{ clip_src }}" data-title="{{ clip.title }}" onclick="openClipModal(this)">
             <video src="{{ clip_src }}#t=0.5" {% if thumb_src %}poster="{{ thumb_src }}"{% endif %} preload="metadata" muted playsinline></video>
-            <span class="clip-overlay-badge">
-                <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>
-                {{ clip.score }}
-            </span>
-            <button type="button" class="clip-expand" tabindex="-1" title="Play preview">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg>
-            </button>
-            <span class="clip-duration-badge">{{ '%.0f' | format(clip.duration) }}s</span>
-            {% if clip.layout_used and clip.layout_used != 'Center Crop' %}
-            <span class="clip-layout-badge">{{ clip.layout_used }}</span>
-            {% endif %}
-            {% if clip.speaker_label %}
-            <span class="clip-speaker-badge">{{ clip.speaker_label }}</span>
-            {% endif %}
             <div class="clip-play"><span><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg></span></div>
         </div>
         {% else %}
@@ -180,8 +166,8 @@
         {% endif %}
 
         <div class="clip-body">
-            <div class="clip-title" title="{{ clip.title }}" style="display:flex; align-items:center; gap:6px;">
-                <span style="flex:1; overflow:hidden; text-overflow:ellipsis;">{{ clip.title }}</span>
+            <div class="clip-title" title="{{ clip.title }}">
+                <span>{{ clip.title }}</span>
                 {% if clip.title_alternatives %}
                 <button type="button" class="clip-edit-btn" title="Try alternative title"
                         onclick="cycleClipTitle('{{ job.id }}','{{ clip.id }}',{{ ([clip.title] + clip.title_alternatives) | tojson }})">
@@ -197,10 +183,27 @@
                     </svg>
                 </button>
             </div>
+            <div class="clip-meta">
+                <button type="button" class="clip-fav{% if clip.favorite %} is-fav{% endif %}"
+                        title="{% if clip.favorite %}Unlike{% else %}Like{% endif %} this clip"
+                        hx-post="/jobs/{{ job.id }}/clips/{{ clip.id }}/favorite"
+                        hx-target="#job-detail-body"
+                        hx-swap="innerHTML">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="{% if clip.favorite %}currentColor{% else %}none{% endif %}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                </button>
+                <span class="cm-badge cm-score">{{ clip.score }}</span>
+                <span class="cm-badge cm-duration">{{ '%.0f' | format(clip.duration) }}s</span>
+                {% if clip.layout_used and clip.layout_used != 'Center Crop' %}
+                <span class="cm-badge cm-layout">{{ clip.layout_used }}</span>
+                {% endif %}
+                {% if clip.speaker_label %}
+                <span class="cm-badge cm-speaker">{{ clip.speaker_label }}</span>
+                {% endif %}
+            </div>
             {% if clip.hook %}
-            <div class="clip-hook" style="display:flex; align-items:flex-start; gap:6px;">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0; margin-top:2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                <span style="flex:1;">{{ clip.hook }}</span>
+            <div class="clip-hook">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0; margin-top:2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                <span>{{ clip.hook }}</span>
                 <button type="button" class="clip-edit-btn" title="Edit hook"
                         onclick="editClipField('{{ job.id }}','{{ clip.id }}','hook',{{ clip.hook | tojson }})">
                     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -212,7 +215,7 @@
             {% if clip.reason %}<div class="clip-reason">{{ clip.reason }}</div>{% endif %}
 
             {% if clip.download_url %}
-            <div class="clip-options" style="display:flex; gap:6px; margin-top:8px;">
+            <div class="clip-options">
                 <select class="clip-opt-select" title="Caption style"
                         onchange="rerenderClipOption('{{ job.id }}','{{ clip.id }}','caption_style', this.value, this)">
                     <option value="bold_pop"{% if (job.caption_style or 'bold_pop') == 'bold_pop' %} selected{% endif %}>Bold Pop</option>
@@ -234,14 +237,18 @@
 
             <div class="clip-foot">
                 {% if clip.download_url %}
-                <button type="button" class="btn-secondary" style="font-size:12px; padding:6px 10px; flex-shrink:0;"
+                <a class="btn-secondary" href="/job/{{ job.id }}/clip/{{ clip.id }}/edit" style="padding:5px 9px; font-size:11px;">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    Edit
+                </a>
+                <button type="button" class="btn-secondary" style="padding:5px 9px;"
                         onclick="openTrimModal('{{ job.id }}','{{ clip.id }}',{{ clip.start }},{{ clip.end }},{{ clip.duration }},'{{ clip_src }}')">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line>
                     </svg>
                 </button>
                 <a class="btn-download" href="{{ clip_src }}" download target="_blank" rel="noopener">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
                         <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line>
                     </svg>
                     Download

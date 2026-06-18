@@ -9,26 +9,20 @@
             radial-gradient(680px 320px at 6% 140%, rgba(1,107,248,0.13), transparent 60%),
             var(--brand-teal-deep);
         color: var(--on-dark);
-        padding: 44px 0 72px;
-        min-height: calc(100vh - 64px - 42px);
-        display: flex;
-        align-items: center;
+        padding: 28px 0 52px;
     }
-    .hero-inner { max-width: 820px; }
-    .hero-eyebrow { font-size: 11px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase;
-        color: var(--brand-green); margin-bottom: 14px; }
-    .hero h1 { font-size: clamp(30px, 4.4vw, 46px); line-height: 1.1; letter-spacing: -1px; font-weight: 600; }
+    .hero h1 { font-size: clamp(22px, 3.6vw, 36px); line-height: 1.15; letter-spacing: -0.8px; font-weight: 600; }
     .hero h1 em { font-style: normal; color: var(--brand-green); }
-    .hero p { margin-top: 14px; font-size: 17px; line-height: 1.5; color: var(--on-dark-muted); }
+    .hero p { margin-top: 8px; font-size: 14px; line-height: 1.5; color: var(--on-dark-muted); max-width: 600px; }
 
     .create-card {
         background: rgba(255,255,255,0.05);
         backdrop-filter: blur(16px);
         -webkit-backdrop-filter: blur(16px);
         border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 20px;
-        padding: 28px;
-        margin-top: 32px;
+        border-radius: 16px;
+        padding: 20px;
+        margin-top: 20px;
     }
     .create-card .form-group label { color: var(--on-dark-muted); }
     .create-card .or-divider { color: var(--on-dark-muted); }
@@ -51,126 +45,193 @@
     .create-card .btn-secondary:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.4); }
     .create-card .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    .create-layout { display: flex; gap: 24px; }
-    .create-preview { flex: 0 0 380px; min-height: 0; }
-    .create-form { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+    .create-layout { display: flex; gap: 20px; }
+    .create-preview { flex: 0 0 340px; min-height: 0; }
+    .create-form { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 
-    @media (max-width: 900px) {
+    .create-advanced-toggle {
+        display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; cursor: pointer;
+        color: var(--on-dark-muted); background: none; border: none; padding: 4px 0;
+        font-family: var(--font-sans); transition: color .15s ease;
+    }
+    .create-advanced-toggle:hover { color: var(--on-dark); }
+    .create-advanced { display: none; }
+    .create-advanced.open { display: block; }
+    .create-advanced > div { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+    .create-advanced .form-group { flex: 1; min-width: 100px; margin: 0; }
+
+    @media (max-width: 860px) {
         .create-layout { flex-direction: column; }
         .create-preview { flex: none; width: 100%; }
-        .hero { min-height: auto; }
+        .hero { min-height: auto; padding: 20px 0 36px; }
+        .create-card { padding: 16px; margin-top: 14px; }
     }
 
     .preview-frame { width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; background: #000;
         overflow: hidden; margin-bottom: 8px; }
     .preview-frame iframe { width: 100%; height: 100%; border: 0; }
     .preview-meta { margin-bottom: 10px; }
-    .preview-meta .title { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .preview-meta .meta { font-size: 12px; color: var(--stone); margin-top: 2px; }
+    .preview-meta .title { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .preview-meta .meta { font-size: 11px; color: var(--stone); margin-top: 2px; }
 
-    .timeline-wrap { position: relative; height: 40px; margin: 8px 0 4px; }
-    .timeline-track { position: absolute; inset: 14px 0; height: 8px; background: var(--hairline-strong);
+    .timeline-wrap { position: relative; height: 36px; margin: 8px 0 4px; }
+    .timeline-track { position: absolute; inset: 14px 0; height: 6px; background: var(--hairline-strong);
         border-radius: 9999px; overflow: hidden; }
     .timeline-fill { position: absolute; top: 0; height: 100%; background: var(--brand-green-mid);
         border-radius: 9999px; }
     .timeline-thumb { position: absolute; top: 50%; transform: translate(-50%, -50%);
-        width: 20px; height: 20px; border-radius: 50%; background: var(--canvas);
+        width: 18px; height: 18px; border-radius: 50%; background: var(--canvas);
         border: 2px solid var(--brand-green-dark); box-shadow: 0 1px 4px rgba(0,0,0,0.2);
         cursor: grab; z-index: 2; pointer-events: none; }
     .timeline-thumb:active { cursor: grabbing; }
     .timeline-min { position: absolute; left: 0; top: 2px; font-size: 10px; font-weight: 600; color: var(--stone); }
     .timeline-max { position: absolute; right: 0; top: 2px; font-size: 10px; font-weight: 600; color: var(--stone); }
-    .timeline-labels { display: flex; justify-content: space-between; font-size: 12px; font-weight: 600;
+    .timeline-labels { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600;
         color: var(--slate); padding: 2px 0; }
     .timeline-sliders { position: absolute; inset: 0; }
     .timeline-sliders input[type="range"] { position: absolute; width: 100%; height: 100%;
         -webkit-appearance: none; appearance: none; background: transparent; pointer-events: none;
         margin: 0; padding: 0; z-index: 3; }
     .timeline-sliders input[type="range"]::-webkit-slider-thumb {
-        -webkit-appearance: none; appearance: none; width: 24px; height: 24px; border-radius: 50%;
+        -webkit-appearance: none; width: 22px; height: 22px; border-radius: 50%;
         background: transparent; border: none; cursor: grab; pointer-events: all; }
     .timeline-sliders input[type="range"]::-moz-range-thumb {
-        width: 24px; height: 24px; border-radius: 50%;
+        width: 22px; height: 22px; border-radius: 50%;
         background: transparent; border: none; cursor: grab; pointer-events: all; }
 
     .preview-placeholder { width: 100%; aspect-ratio: 16 / 9; border-radius: 10px;
         background: var(--surface-soft); border: 1px dashed var(--hairline-strong);
         display: flex; flex-direction: column; align-items: center; justify-content: center;
-        gap: 8px; color: var(--stone); font-size: 13px; }
+        gap: 6px; color: var(--stone); font-size: 12px; }
     .preview-placeholder svg { stroke: var(--muted); }
 
     .loading-overlay { display: none; align-items: center; justify-content: center;
-        gap: 8px; font-size: 13px; color: var(--steel); padding: 24px 0; }
+        gap: 8px; font-size: 13px; color: var(--steel); padding: 16px 0; }
     .loading-overlay.show { display: flex; }
 
-    .jobs-wrap { margin-top: -36px; padding-bottom: 20px; position: relative; z-index: 10; }
-    .section-head { display: flex; align-items: center; justify-content: space-between; margin: 0 4px 16px; }
-    .section-head h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
-    .section-head .count { font-size: 12px; font-weight: 600; color: var(--slate); background: var(--canvas);
-        border: 1px solid var(--hairline); border-radius: 9999px; padding: 5px 12px; }
+    .jobs-section { padding: 24px 0 40px; }
+    .jobs-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+    .jobs-head h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.2px; }
+    .jobs-head-actions { display: flex; align-items: center; gap: 8px; }
 
-    .job-row { display: flex; align-items: center; gap: 10px; background: var(--canvas); border: 1px solid var(--hairline);
-        border-radius: 14px; padding: 12px 16px; margin-bottom: 10px; box-shadow: var(--shadow-1);
-        transition: box-shadow .15s ease, border-color .15s ease, transform .15s ease; }
-    .job-row:hover { box-shadow: var(--shadow-2); border-color: var(--hairline-strong); transform: translateY(-1px); }
-    .job-row.selected { border-color: var(--brand-green-mid); background: var(--brand-green-soft); }
-    .job-check { width: 16px; height: 16px; accent-color: var(--brand-green-mid); cursor: pointer; flex-shrink: 0; }
-    .job-thumb-wrap { width: 52px; height: 52px; border-radius: 10px; overflow: hidden; flex-shrink: 0;
-        background: var(--surface-feature); }
-    .job-thumb-wrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .job-thumb-placeholder { width: 52px; height: 52px; border-radius: 10px; background: var(--surface-feature);
-        color: var(--brand-green-dark); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-    .job-row-link { flex: 1; min-width: 0; }
-    .job-row-link .title { font-size: 15px; font-weight: 600; color: var(--ink); overflow: hidden;
-        text-overflow: ellipsis; white-space: nowrap; }
-    .job-row-link .sub { font-size: 12px; color: var(--stone); margin-top: 3px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .job-row-link .sub code { font-family: var(--font-mono); font-size: 11px; background: var(--surface-soft);
-        color: var(--slate); padding: 2px 6px; border-radius: 5px; }
-    .job-row-right { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .clipcount { font-size: 12px; font-weight: 600; color: var(--brand-green-dark); background: var(--brand-green-soft);
-        border-radius: 9999px; padding: 5px 11px; }
-    .row-del { background: var(--surface); border: 1px solid var(--hairline); color: var(--stone); cursor: pointer;
-        width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all .15s ease; }
-    .row-del:hover { color: var(--accent-pink); border-color: #FFD9D6; background: #FFF1F0; }
-    .row-retry { background: var(--surface); border: 1px solid var(--hairline); color: var(--stone); cursor: pointer;
-        width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all .15s ease; }
-    .row-retry:hover { color: var(--brand-green-dark); border-color: var(--brand-green-soft); background: var(--brand-green-soft); }
-    .row-chev { color: var(--stone); display: flex; align-items: center; }
-    .btn-ghost { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px;
+    /* ---- YouTube-style card grid ---- */
+    .job-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+
+    .job-card {
+        background: var(--canvas); border: 1px solid var(--hairline); border-radius: 14px;
+        overflow: hidden; transition: transform .15s ease, box-shadow .15s ease;
+        box-shadow: var(--shadow-1); position: relative;
+    }
+    .job-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-3); }
+
+    .job-card-thumb {
+        position: relative; width: 100%; aspect-ratio: 16 / 9; overflow: hidden;
+        background: var(--surface-feature); display: flex; align-items: center; justify-content: center;
+    }
+    .job-card-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .job-card-thumb .placeholder-icon { width: 40px; height: 40px; color: var(--brand-green-dark); opacity: 0.4; }
+
+    .job-card-status {
+        position: absolute; top: 10px; left: 10px; z-index: 2;
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700;
+        background: rgba(0,0,0,0.7); color: #fff; backdrop-filter: blur(4px);
+        text-transform: capitalize;
+    }
+    .job-card-status .pulse-dot { width: 5px; height: 5px; border-radius: 50%; background: #fff; }
+    .job-card-status .pulse-dot.dot-downloading, 
+    .job-card-status .pulse-dot.dot-transcribing,
+    .job-card-status .pulse-dot.dot-finding_moments,
+    .job-card-status .pulse-dot.dot-classifying,
+    .job-card-status .pulse-dot.dot-rendering { background: #fff; animation: pulse 1.4s infinite; }
+
+    .job-card-clipcount {
+        position: absolute; bottom: 10px; right: 10px; z-index: 2;
+        padding: 3px 9px; border-radius: 9999px; font-size: 11px; font-weight: 700;
+        background: rgba(0,0,0,0.7); color: #fff; backdrop-filter: blur(4px);
+    }
+
+    .job-card-body { padding: 12px 14px 14px; }
+    .job-card-title {
+        font-size: 14px; font-weight: 600; color: var(--ink); line-height: 1.35;
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+        word-break: break-all;
+    }
+    .job-card-meta { font-size: 12px; color: var(--stone); margin-top: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .job-card-meta code { font-family: var(--font-mono); font-size: 10px; background: var(--surface-soft);
+        color: var(--slate); padding: 2px 6px; border-radius: 4px; }
+
+    .job-card-actions {
+        display: flex; align-items: center; gap: 4px; margin-top: 10px; padding-top: 10px;
+        border-top: 1px solid var(--hairline);
+    }
+    .job-card-action {
+        display: inline-flex; align-items: center; justify-content: center;
+        width: 30px; height: 30px; border-radius: 8px; border: none; cursor: pointer;
+        background: transparent; color: var(--stone); transition: all .15s ease;
+    }
+    .job-card-action:hover { background: var(--surface-soft); color: var(--ink); }
+    .job-card-action.danger:hover { background: #FFF1F0; color: var(--accent-pink); }
+    .job-card-action.retry:hover { background: var(--brand-green-soft); color: var(--brand-green-dark); }
+
+    .job-card-link {
+        text-decoration: none; color: inherit; display: block;
+    }
+    .job-card-link:hover .job-card-thumb img { transform: scale(1.03); }
+    .job-card-thumb img { transition: transform .3s ease; }
+
+    .btn-ghost-sm { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px;
         background: var(--surface); color: var(--slate); border: 1px solid var(--hairline-strong);
-        border-radius: 9999px; font-size: 12px; font-weight: 600; cursor: pointer; font-family: var(--font-sans);
+        border-radius: 9999px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: var(--font-sans);
         transition: all .15s ease; }
-    .btn-ghost:hover { background: var(--surface-soft); border-color: var(--steel); color: var(--ink); }
-    .btn-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-ghost-sm:hover { background: var(--surface-soft); border-color: var(--steel); color: var(--ink); }
+    .btn-ghost-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-danger-sm { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px;
+        background: transparent; color: var(--accent-pink); border: 1px solid transparent;
+        border-radius: 9999px; font-size: 11px; font-weight: 600; cursor: pointer; font-family: var(--font-sans);
+        transition: all .15s ease; }
+    .btn-danger-sm:hover { border-color: #FFD9D6; background: #FFF1F0; }
+    .btn-danger-sm:disabled { opacity: 0.35; cursor: not-allowed; }
+
     .drop-wrap { position: relative; display: inline-block; }
-    .drop-menu { position: absolute; top: calc(100% + 6px); right: 0; min-width: 190px; background: var(--canvas);
+    .drop-menu { position: absolute; top: calc(100% + 6px); right: 0; min-width: 170px; background: var(--canvas);
         border: 1px solid var(--hairline-strong); border-radius: 12px; box-shadow: var(--shadow-3);
         padding: 6px; display: none; z-index: 20; }
     .drop-menu.open { display: block; }
-    .drop-item { display: block; width: 100%; text-align: left; padding: 9px 12px; border: none; border-radius: 8px;
-        background: transparent; color: var(--ink); font-size: 13px; font-weight: 500; cursor: pointer;
+    .drop-item { display: block; width: 100%; text-align: left; padding: 8px 12px; border: none; border-radius: 8px;
+        background: transparent; color: var(--ink); font-size: 12px; font-weight: 500; cursor: pointer;
         font-family: var(--font-sans); transition: background .12s ease; white-space: nowrap; }
     .drop-item:hover { background: var(--surface-soft); }
     .drop-item.danger { color: var(--accent-pink); }
     .drop-item.danger:hover { background: #FFF1F0; }
     .drop-divider { height: 1px; background: var(--hairline); margin: 4px 6px; }
 
-    .btn-danger { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; background: transparent;
-        color: var(--accent-pink); border: 1px solid transparent; border-radius: 9999px; font-size: 12px;
-        font-weight: 600; cursor: pointer; font-family: var(--font-sans);
-        transition: all .15s ease; }
-    .btn-danger:hover { border-color: #FFD9D6; background: #FFF1F0; }
-    .btn-danger:disabled { opacity: 0.35; cursor: not-allowed; border-color: transparent; background: transparent; }
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--stone); }
+    .empty-state svg { stroke: var(--muted); margin-bottom: 12px; }
+    .empty-state h3 { font-size: 16px; font-weight: 600; color: var(--slate); margin-bottom: 6px; }
+    .empty-state p { font-size: 13px; }
 
-    @media (max-width: 620px) { .job-row-right .clipcount { display: none; } }
+    @media (max-width: 600px) {
+        .job-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; }
+        .jobs-section { padding: 16px 0 24px; }
+        .hero h1 { font-size: 20px; }
+        .hero p { font-size: 13px; }
+        .create-card { padding: 12px; }
+        .jobs-head h2 { font-size: 16px; }
+    }
+    @media (max-width: 400px) {
+        .job-grid { grid-template-columns: 1fr; }
+    }
 </style>
 {% endblock %}
 
 {% block content %}
 <header class="hero">
     <div class="container" style="width:100%;">
-        <div class="hero-inner">
-            <div class="hero-eyebrow">AI clipping pipeline</div>
+        <div style="max-width:820px;">
+            <div style="font-size:11px; font-weight:600; letter-spacing:1px; text-transform:uppercase;
+                color:var(--brand-green); margin-bottom:10px;">AI clipping pipeline</div>
             <h1>Your <em>vertical</em> clips,<br>all in one place.</h1>
             <p>Submit a video and SimbioClip transcribes it, scores the best moments, reframes with smart layout, and burns color-coded captions automatically.</p>
         </div>
@@ -184,14 +245,13 @@
                   hx-on::after-request="handleFormSuccess(event); document.querySelector('#submit-btn').disabled = false; document.querySelector('#submit-btn-text').innerText = 'Extract clips';">
 
                 <div class="create-layout">
-                    <!-- Left: Preview -->
                     <div class="create-preview">
                         <div class="preview-frame" id="preview-frame">
                             <div class="preview-placeholder" id="preview-placeholder">
-                                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                                     <polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect>
                                 </svg>
-                                <span>Preview will appear here</span>
+                                <span>Preview</span>
                             </div>
                             <iframe id="yt-preview" width="100%" height="100%" frameborder="0"
                                     allow="autoplay; encrypted-media" allowfullscreen
@@ -217,10 +277,8 @@
                                 <div class="timeline-thumb" id="thumb-start" style="left:0%;"></div>
                                 <div class="timeline-thumb" id="thumb-end" style="left:100%;"></div>
                                 <div class="timeline-sliders">
-                                    <input type="range" id="clip_start_slider" min="0" max="100" value="0" step="1"
-                                           oninput="onStartSlide()">
-                                    <input type="range" id="clip_end_slider" min="0" max="100" value="100" step="1"
-                                           oninput="onEndSlide()">
+                                    <input type="range" id="clip_start_slider" min="0" max="100" value="0" step="1" oninput="onStartSlide()">
+                                    <input type="range" id="clip_end_slider" min="0" max="100" value="100" step="1" oninput="onEndSlide()">
                                 </div>
                             </div>
                             <input type="hidden" name="clip_start" id="clip_start" value="0">
@@ -228,7 +286,6 @@
                         </div>
                     </div>
 
-                    <!-- Right: Form -->
                     <div class="create-form">
                         <div class="form-group" style="margin:0;">
                             <label for="source_url">Video URL</label>
@@ -236,7 +293,7 @@
                                 <input type="url" name="source_url" id="source_url" class="text-input"
                                        placeholder="https://youtube.com/watch?v=…" autocomplete="off" style="flex:1;">
                                 <button type="button" class="btn-secondary" id="preview-btn"
-                                        onclick="previewVideo()" style="white-space:nowrap;">Preview</button>
+                                        onclick="previewVideo()" style="white-space:nowrap;font-size:13px;padding:7px 14px;">Preview</button>
                             </div>
                         </div>
 
@@ -244,15 +301,15 @@
                             <span class="spinner"></span> Fetching video info…
                         </div>
 
-                        <div class="or-divider" style="margin:4px 0;">or upload file</div>
+                        <div class="or-divider" style="margin:2px 0;">or upload file</div>
 
                         <div class="form-group" style="margin:0;">
                             <label>Raw video file</label>
-                            <div class="file-upload-area" style="padding:14px 12px;">
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:4px;">
+                            <div class="file-upload-area" style="padding:10px 12px;">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line>
                                 </svg>
-                                <span style="font-size:13px;">Choose a video file</span>
+                                <span style="font-size:12px;">Choose a video file</span>
                                 <input type="file" name="file" class="file-upload-input" id="file-input" accept="video/*">
                             </div>
                             <div class="file-selected-info" id="file-info-box">
@@ -269,86 +326,89 @@
                             </div>
                         </div>
 
-                        <div style="display:flex; gap:12px;">
-                            <div class="form-group" style="flex:1; margin:0;">
-                                <label for="layout_mode">Layout</label>
-                                <select name="layout_mode" id="layout_mode" class="text-input">
-                                    <option value="auto">Auto (AI detect)</option>
-                                    <option value="game_stream">Game Stream</option>
-                                    <option value="podcast">Podcast</option>
-                                    <option value="talking_head">Talking Head</option>
-                                    <option value="center_crop">Center Crop</option>
-                                </select>
+                        <button type="button" class="create-advanced-toggle" onclick="toggleAdvanced()" id="adv-toggle">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            Advanced options
+                        </button>
+
+                        <div class="create-advanced" id="create-advanced">
+                            <div>
+                                <div class="form-group">
+                                    <label for="layout_mode">Layout</label>
+                                    <select name="layout_mode" id="layout_mode" class="text-input">
+                                        <option value="auto">Auto</option>
+                                        <option value="game_stream">Game Stream</option>
+                                        <option value="podcast">Podcast</option>
+                                        <option value="talking_head">Talking Head</option>
+                                        <option value="center_crop">Center Crop</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="aspect_ratio">Ratio</label>
+                                    <select name="aspect_ratio" id="aspect_ratio" class="text-input">
+                                        <option value="9:16">9:16</option>
+                                        <option value="1:1">1:1</option>
+                                        <option value="4:5">4:5</option>
+                                        <option value="16:9">16:9</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="lang">Lang</label>
+                                    <select name="lang" id="lang" class="text-input">
+                                        <option value="">Auto</option>
+                                        <option value="id">ID</option>
+                                        <option value="en">EN</option>
+                                        <option value="es">ES</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="caption_style">Caption</label>
+                                    <select name="caption_style" id="caption_style" class="text-input">
+                                        <option value="bold_pop">Bold Pop</option>
+                                        <option value="karaoke_highlight">Karaoke</option>
+                                        <option value="neon">Neon</option>
+                                        <option value="minimal">Minimal</option>
+                                        <option value="podcast">Podcast</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="clip_duration">Duration</label>
+                                    <select name="clip_duration" id="clip_duration" class="text-input">
+                                        <option value="auto">Auto</option>
+                                        <option value="10-15">10–15s</option>
+                                        <option value="15-30">15–30s</option>
+                                        <option value="30-45">30–45s</option>
+                                        <option value="45-60">45–60s</option>
+                                        <option value="60-90">60–90s</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="download_resolution">Res</label>
+                                    <select name="download_resolution" id="download_resolution" class="text-input">
+                                        <option value="best">Best</option>
+                                        <option value="2160p">4K</option>
+                                        <option value="1440p">1440p</option>
+                                        <option value="1080p" selected>1080p</option>
+                                        <option value="720p">720p</option>
+                                        <option value="480p">480p</option>
+                                        <option value="360p">360p</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="form-group" style="flex:1; margin:0;">
-                                <label for="aspect_ratio">Aspect ratio</label>
-                                <select name="aspect_ratio" id="aspect_ratio" class="text-input">
-                                    <option value="9:16">9:16 (TikTok/Reels)</option>
-                                    <option value="1:1">1:1 (Square)</option>
-                                    <option value="4:5">4:5 (IG portrait)</option>
-                                    <option value="16:9">16:9 (Landscape)</option>
-                                </select>
-                            </div>
-                            <div class="form-group" style="flex:0 0 100px; margin:0;">
-                                <label for="lang">Language</label>
-                                <select name="lang" id="lang" class="text-input">
-                                    <option value="">Auto</option>
-                                    <option value="id">ID</option>
-                                    <option value="en">EN</option>
-                                    <option value="es">ES</option>
-                                </select>
+                            <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:6px;">
+                                <label class="checkbox-label" style="font-size:13px;">
+                                    <input type="checkbox" name="audio_ducking" value="true">
+                                    <span>Audio ducking</span>
+                                </label>
+                                <label class="checkbox-label" style="font-size:13px;" title="Skip long silences and breath gaps">
+                                    <input type="checkbox" name="dense_cut" value="true">
+                                    <span>Dense cut</span>
+                                </label>
                             </div>
                         </div>
 
-                        <div style="display:flex; gap:12px;">
-                            <div class="form-group" style="flex:1; margin:0;">
-                                <label for="caption_style">Caption style</label>
-                                <select name="caption_style" id="caption_style" class="text-input">
-                                    <option value="bold_pop">Bold Pop (default)</option>
-                                    <option value="karaoke_highlight">Karaoke Highlight</option>
-                                    <option value="neon">Neon</option>
-                                    <option value="minimal">Minimal</option>
-                                    <option value="podcast">Podcast</option>
-                                </select>
-                            </div>
-                            <div class="form-group" style="flex:1; margin:0;">
-                                <label for="clip_duration">Clip duration</label>
-                                <select name="clip_duration" id="clip_duration" class="text-input">
-                                    <option value="auto">Auto (15–60s)</option>
-                                    <option value="10-15">10–15s</option>
-                                    <option value="15-30">15–30s</option>
-                                    <option value="30-45">30–45s</option>
-                                    <option value="45-60">45–60s</option>
-                                    <option value="60-90">60–90s</option>
-                                </select>
-                            </div>
-                            <div class="form-group" style="flex:0 0 120px; margin:0;">
-                                <label for="download_resolution">Resolution</label>
-                                <select name="download_resolution" id="download_resolution" class="text-input">
-                                    <option value="best">Best</option>
-                                    <option value="2160p">4K (2160p)</option>
-                                    <option value="1440p">1440p</option>
-                                    <option value="1080p" selected>1080p</option>
-                                    <option value="720p">720p</option>
-                                    <option value="480p">480p</option>
-                                    <option value="360p">360p</option>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="checkbox-group" style="margin:0; display:flex; gap:18px; flex-wrap:wrap;">
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="audio_ducking" value="true">
-                                <span>Audio ducking</span>
-                            </label>
-                            <label class="checkbox-label" title="Skip long silences and breath gaps to make clips denser">
-                                <input type="checkbox" name="dense_cut" value="true">
-                                <span>Dense cut (remove silences)</span>
-                            </label>
-                        </div>
-
-                        <button type="submit" class="btn-primary" id="submit-btn" style="width:100%;margin-top:4px;">
-                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <button type="submit" class="btn-primary" id="submit-btn" style="width:100%;margin-top:2px;padding:10px 18px;font-size:14px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
                                 <polygon points="5 3 19 12 5 21 5 3"></polygon>
                             </svg>
                             <span id="submit-btn-text">Extract clips</span>
@@ -360,49 +420,56 @@
     </div>
 </header>
 
-<main class="container jobs-wrap">
-    <div class="section-head">
-        <h2 style="display:flex; align-items:center; gap:10px;">
-            <input type="checkbox" id="select-all" class="job-check" onchange="toggleSelectAll(this.checked)" style="display:none;">
-            Clipping pipelines
-        </h2>
-        <div style="display:flex; align-items:center; gap:8px;">
-            <button class="btn-danger" id="delete-selected-btn" disabled onclick="deleteSelected()">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                </svg>
-                Delete <span id="selected-count">0</span>
-            </button>
-            <div class="drop-wrap">
-                <button class="btn-ghost" onclick="toggleCleanMenu(event)">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+<section class="jobs-section">
+    <div class="container">
+        <div class="jobs-head">
+            <h2>Clipping pipelines</h2>
+            <div class="jobs-head-actions">
+                <button class="btn-danger-sm" id="delete-selected-btn" disabled onclick="deleteSelected()">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                         <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
                     </svg>
-                    Clean
+                    Delete <span id="selected-count">0</span>
                 </button>
-                <div class="drop-menu" id="clean-menu">
-                    <button class="drop-item" onclick="cleanJobs(7)">Older than 7 days</button>
-                    <button class="drop-item" onclick="cleanJobs(30)">Older than 30 days</button>
-                    <div class="drop-divider"></div>
-                    <button class="drop-item danger" onclick="cleanJobs(0)">Delete all jobs</button>
+                <div class="drop-wrap">
+                    <button class="btn-ghost-sm" onclick="toggleCleanMenu(event)">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        </svg>
+                        Clean
+                    </button>
+                    <div class="drop-menu" id="clean-menu">
+                        <button class="drop-item" onclick="cleanJobs(7)">Older than 7 days</button>
+                        <button class="drop-item" onclick="cleanJobs(30)">Older than 30 days</button>
+                        <div class="drop-divider"></div>
+                        <button class="drop-item danger" onclick="cleanJobs(0)">Delete all jobs</button>
+                    </div>
                 </div>
             </div>
-            <span class="count">Live updates</span>
+        </div>
+
+        <div id="jobs-container" class="job-grid"
+             hx-get="/partials/jobs-list"
+             hx-trigger="load, reload-jobs from:body"
+             hx-target="#jobs-container"
+             hx-swap="innerHTML">
+            <div class="empty-state"><span class="spinner"></span> Loading…</div>
         </div>
     </div>
-    <div id="jobs-container"
-         hx-get="/partials/jobs-list"
-         hx-trigger="load, reload-jobs from:body"
-         hx-target="#jobs-container"
-         hx-swap="innerHTML">
-        <div class="loading-state"><span class="spinner"></span> Loading pipeline jobs…</div>
-    </div>
-</main>
+</section>
 {% endblock %}
 
 {% block scripts %}
 <script>
-    /* ---- Clean / Bulk Delete ---- */
+    function toggleAdvanced() {
+        var el = document.getElementById('create-advanced');
+        var btn = document.getElementById('adv-toggle');
+        el.classList.toggle('open');
+        btn.innerHTML = el.classList.contains('open')
+            ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="18 15 12 9 6 15"></polyline></svg> Advanced options'
+            : '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg> Advanced options';
+    }
+
     function toggleCleanMenu(e) {
         e.stopPropagation();
         document.getElementById('clean-menu').classList.toggle('open');
@@ -416,38 +483,18 @@
             : 'Delete jobs older than ' + days + ' days? This cannot be undone.';
         if (!confirm(msg)) return;
         document.getElementById('clean-menu').classList.remove('open');
-        var btn = document.querySelector('.drop-wrap .btn-ghost');
-        btn.disabled = true; btn.innerText = 'Cleaning…';
         fetch('/cleanup?days=' + days, { method: 'POST' })
             .then(function () {
                 document.body.dispatchEvent(new Event('reload-jobs'));
                 showToast('Cleaned up old jobs');
             })
-            .catch(function () { showToast('Cleanup failed', true); })
-            .finally(function () { btn.disabled = false; btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Clean'; });
-    }
-
-    function toggleSelectAll(checked) {
-        document.querySelectorAll('.job-check').forEach(function (cb) {
-            if (cb.id !== 'select-all') { cb.checked = checked; cb.closest('.job-row').classList.toggle('selected', checked); }
-        });
-        updateDeleteBtn();
-    }
-
-    function updateDeleteBtn() {
-        var checks = document.querySelectorAll('.job-check:checked');
-        var count = 0;
-        checks.forEach(function (c) { if (c.id !== 'select-all') count++; });
-        var btn = document.getElementById('delete-selected-btn');
-        document.getElementById('selected-count').innerText = count;
-        btn.disabled = count === 0;
+            .catch(function () { showToast('Cleanup failed', true); });
     }
 
     function deleteSelected() {
+        var checks = document.querySelectorAll('.job-check:checked');
         var ids = [];
-        document.querySelectorAll('.job-check:checked').forEach(function (c) {
-            if (c.id !== 'select-all') ids.push(c.value);
-        });
+        checks.forEach(function (c) { ids.push(c.value); });
         if (!ids.length) return;
         if (!confirm('Delete ' + ids.length + ' selected job(s) and all clips? This cannot be undone.')) return;
         var btn = document.getElementById('delete-selected-btn');
@@ -463,23 +510,14 @@
         }).catch(function () {
             showToast('Bulk delete failed', true);
         }).finally(function () {
-            btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete <span id="selected-count">0</span>';
-            document.getElementById('select-all').checked = false;
+            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete <span id="selected-count">0</span>';
         });
     }
 
     document.body.addEventListener('htmx:afterSwap', function (e) {
         if (e.detail.target.id === 'jobs-container') {
-            var hasJobs = document.querySelectorAll('.job-row').length > 0;
-            document.getElementById('select-all').style.display = hasJobs ? '' : 'none';
+            var hasJobs = document.querySelectorAll('.job-card').length > 0;
             document.getElementById('delete-selected-btn').style.display = hasJobs ? '' : 'none';
-        }
-    });
-
-    document.addEventListener('change', function (e) {
-        if (e.target.classList.contains('job-check') && e.target.id !== 'select-all') {
-            e.target.closest('.job-row').classList.toggle('selected', e.target.checked);
-            updateDeleteBtn();
         }
     });
 
@@ -624,7 +662,7 @@
                 clearFileInput();
                 resetPreview();
                 document.getElementById('clips-val').innerText = '5';
-                showToast("Video enqueued. Processing in the background…");
+                showToast("Video enqueued");
                 document.body.dispatchEvent(new Event('reload-jobs'));
             } else {
                 var msg = "Failed to enqueue job.";
@@ -639,18 +677,17 @@
         }
     }
 
-    /* Track job status transitions for browser notifications on the dashboard */
     (function() {
         var jobStatuses = {};
         document.body.addEventListener('htmx:afterSwap', function(e) {
             if (e.detail.target.id !== 'jobs-container') return;
-            var rows = document.querySelectorAll('.job-row');
+            var cards = document.querySelectorAll('.job-card');
             var fresh = {};
-            rows.forEach(function(row) {
-                var id = row.id.replace('job-row-', '');
-                var pill = row.querySelector('.status-pill');
+            cards.forEach(function(card) {
+                var id = card.id.replace('job-card-', '');
+                var pill = card.querySelector('.job-card-status');
                 if (!pill) return;
-                var status = pill.textContent.trim().toLowerCase().replace(/\s+/g, '_');
+                var status = pill.textContent.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z_]/g,'');
                 fresh[id] = status;
                 var prev = jobStatuses[id];
                 if (prev && prev !== status) {

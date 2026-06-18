@@ -3,7 +3,7 @@ import json
 import logging
 import subprocess
 from typing import List, Dict, Any, Tuple, Optional
-from app.models import Job, Clip
+from app.models import Job, Clip, ClipCropOverrides
 
 logger = logging.getLogger("simbioclip.pipeline.render")
 
@@ -159,7 +159,13 @@ def _even(value) -> int:
 def compute_crop_box(
     frame_w: int, frame_h: int, target_ar: float,
     center_x: float, center_y: float, desired_h: float,
+    overrides: Optional["ClipCropOverrides"] = None,
 ) -> Tuple[int, int, int, int]:
+    if overrides:
+        center_x += overrides.pan_x
+        center_y += overrides.pan_y
+        if overrides.zoom > 0:
+            desired_h = desired_h / overrides.zoom
     ch = min(float(desired_h), float(frame_h))
     cw = ch * target_ar
     if cw > frame_w:
@@ -479,8 +485,20 @@ def build_split_cam_filter(face_box: Tuple[int, int, int, int], w: int, h: int,
 
 
 def build_center_crop_filter(w: int, h: int, crop_w: int, crop_h: int,
-                             escaped_ass: str, out_w: int = OUT_W, out_h: int = OUT_H) -> str:
+                             escaped_ass: str, out_w: int = OUT_W, out_h: int = OUT_H,
+                             overrides: Optional[ClipCropOverrides] = None) -> str:
     cx, cy = max(0, _even((w - crop_w) / 2)), max(0, _even((h - crop_h) / 2))
+    if overrides:
+        cx += int(overrides.pan_x)
+        cy += int(overrides.pan_y)
+        if overrides.zoom > 0 and overrides.zoom != 1.0:
+            new_w = max(2, _even(crop_w / overrides.zoom))
+            new_h = max(2, _even(crop_h / overrides.zoom))
+            cx = max(0, _even(cx + (crop_w - new_w) / 2))
+            cy = max(0, _even(cy + (crop_h - new_h) / 2))
+            crop_w, crop_h = new_w, new_h
+        cx = max(0, min(cx, w - crop_w))
+        cy = max(0, min(cy, h - crop_h))
     return f"crop={crop_w}:{crop_h}:{cx}:{cy},scale={out_w}:{out_h},setsar=1,ass='{escaped_ass}'"
 
 
@@ -506,10 +524,11 @@ def build_passthrough_filter(escaped_ass: str, out_w: int = OUT_W, out_h: int = 
 
 def build_face_track_filter(face_box: Tuple[int,int,int,int], w: int, h: int,
                             facecam_scale: float, escaped_ass: str,
-                            out_w: int = OUT_W, out_h: int = OUT_H) -> str:
+                            out_w: int = OUT_W, out_h: int = OUT_H,
+                            overrides: Optional[ClipCropOverrides] = None) -> str:
     fx, fy, fw, fh = face_box
     fcx, fcy = fx + fw / 2.0, fy + fh / 2.0
-    cx, cy, cw_val, ch_val = compute_crop_box(w, h, out_w / out_h, fcx, fcy, fh * facecam_scale)
+    cx, cy, cw_val, ch_val = compute_crop_box(w, h, out_w / out_h, fcx, fcy, fh * facecam_scale, overrides)
     return f"crop={cw_val}:{ch_val}:{cx}:{cy},scale={out_w}:{out_h},setsar=1,ass='{escaped_ass}'"
 
 
@@ -541,6 +560,7 @@ def build_dynamic_face_track_filter(
     w: int, h: int, facecam_scale: float,
     escaped_ass: str, render_start: float,
     out_w: int = OUT_W, out_h: int = OUT_H,
+    overrides: Optional[ClipCropOverrides] = None,
 ) -> Optional[str]:
     """
     Builds a face-track filter where the crop window follows the subject across
@@ -558,7 +578,7 @@ def build_dynamic_face_track_filter(
     for t_abs, fx, fy, fw, fh in trajectory:
         fcx, fcy = fx + fw / 2.0, fy + fh / 2.0
         desired_h = fh * facecam_scale
-        cx, cy, cw, ch = compute_crop_box(w, h, target_ar, fcx, fcy, desired_h)
+        cx, cy, cw, ch = compute_crop_box(w, h, target_ar, fcx, fcy, desired_h, overrides)
         crops.append((t_abs, cx, cy, cw, ch))
 
     cws = sorted(c[3] for c in crops)
@@ -574,9 +594,12 @@ def build_dynamic_face_track_filter(
     # consistent. Clamp into valid bounds.
     knots_x: List[Tuple[float, float]] = []
     knots_y: List[Tuple[float, float]] = []
+    offset_x = overrides.pan_x if overrides else 0.0
+    offset_y = overrides.pan_y if overrides else 0.0
+    zoom_factor = overrides.zoom if overrides and overrides.zoom > 0 else 1.0
     for t_abs, fx, fy, fw, fh in trajectory:
-        fcx = fx + fw / 2.0
-        fcy = fy + fh / 2.0
+        fcx = fx + fw / 2.0 + offset_x
+        fcy = fy + fh / 2.0 + offset_y
         x = max(0.0, min(w - median_cw, fcx - median_cw / 2.0))
         y = max(0.0, min(h - median_ch, fcy - median_ch / 2.0))
         # Use clip-relative time (ffmpeg's t after pre-seek starts at 0)
@@ -681,6 +704,7 @@ def render_clip_ffmpeg(
     caption_style: str = "bold_pop",
     silence_ranges: Optional[List[List[float]]] = None,
     dense_cut: bool = False,
+    crop_overrides: Optional[ClipCropOverrides] = None,
 ) -> str:
     out_w, out_h = _get_output_dims(aspect_ratio)
     clips_dir = os.path.join(job_dir, "clips")
@@ -768,6 +792,7 @@ def render_clip_ffmpeg(
                 vf = build_dynamic_face_track_filter(
                     traj, w, h, facecam_scale,
                     escaped_ass, render_start, out_w, out_h,
+                    overrides=crop_overrides,
                 )
                 if vf:
                     logger.info(f"Dynamic face track: {len(traj)} knots")
@@ -777,9 +802,9 @@ def render_clip_ffmpeg(
         if vf is None:
             vf = build_face_track_filter(
                 fb, w, h, facecam_scale,
-                escaped_ass, out_w, out_h)
+                escaped_ass, out_w, out_h, overrides=crop_overrides)
     else:
-        vf = build_center_crop_filter(w, h, crop_w, crop_h, escaped_ass, out_w, out_h)
+        vf = build_center_crop_filter(w, h, crop_w, crop_h, escaped_ass, out_w, out_h, overrides=crop_overrides)
 
     clip_end_render = render_start + render_duration
     logger.info(
@@ -893,6 +918,7 @@ def render_active_speaker_clip(
     aspect_ratio: str, audio_ducking: bool,
     progress_callback,
     caption_style: str = "bold_pop",
+    crop_overrides: Optional[ClipCropOverrides] = None,
 ) -> str:
     from app.pipeline.face_detect import detect_face_camera
     from app.pipeline.layout_engine import get_layout_params
@@ -1081,6 +1107,8 @@ def render_one_clip(
     caption_style = override_caption_style or job.caption_style or "bold_pop"
     layout_mode = override_layout or job.layout_mode
 
+    crop_overrides = clip.crop_overrides
+
     # If the user forced a specific layout, never auto-switch to active-speaker.
     if multi_speaker and sp_segments and detect_faces and not override_layout:
         clip_path = render_active_speaker_clip(
@@ -1092,6 +1120,7 @@ def render_one_clip(
             audio_ducking=job.audio_ducking or False,
             progress_callback=progress_callback,
             caption_style=caption_style,
+            crop_overrides=crop_overrides,
         )
         clip.layout_used = "Active Speaker"
         clip.facecam_detected = True
@@ -1119,6 +1148,7 @@ def render_one_clip(
             silence_ranges=job.silence_ranges or [],
             dense_cut=bool(job.dense_cut),
             trim_start=clip.trim_start, trim_end=clip.trim_end,
+            crop_overrides=crop_overrides,
         )
 
     clip.file_path = clip_path

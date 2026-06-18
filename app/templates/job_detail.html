@@ -23,6 +23,12 @@
     .trim-slider-wrap label { font-size: 11px; font-weight: 600; color: var(--steel); display: flex; justify-content: space-between; margin-bottom: 4px; }
     .trim-slider-wrap input[type="range"] { width: 100%; accent-color: var(--brand-green-mid); }
     .trim-times { display: flex; justify-content: space-between; font-size: 12px; color: var(--stone); margin-top: 4px; }
+    .clip-fav { background: transparent; border: none; cursor: pointer; padding: 2px;
+        color: var(--stone); border-radius: 4px; transition: all .15s ease; display: inline-flex;
+        align-items: center; justify-content: center; line-height: 1; }
+    .clip-fav:hover { color: #e74c3c; background: rgba(231,76,60,0.08); }
+    .clip-fav.is-fav { color: #e74c3c; }
+    .clip-fav.is-fav:hover { color: var(--stone); background: transparent; }
     .clip-edit-btn { background: transparent; border: none; cursor: pointer; opacity: 0.4; padding: 2px;
         color: var(--stone); border-radius: 4px; transition: opacity .15s ease, background .15s ease; }
     .clip-edit-btn:hover { opacity: 1; background: var(--surface-soft); color: var(--ink); }
@@ -59,12 +65,15 @@
 
 {% block content %}
 <main class="detail-wrap">
-    <a class="back-link" href="/">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="15 18 9 12 15 6"></polyline>
-        </svg>
-        Back to jobs
-    </a>
+    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+        <a class="back-link" href="/">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="15 18 9 12 15 6"></polyline>
+            </svg>
+            Back to jobs
+        </a>
+        
+    </div>
 
     <div id="job-detail-body">
         {% include "partials/job_detail.html" %}

@@ -60,6 +60,39 @@ _STATUS_STEP = {
 }
 
 
+class ClipCropOverrides(BaseModel):
+    pan_x: float = 0
+    pan_y: float = 0
+    zoom: float = 1.0
+
+class ClipSubtitleEdit(BaseModel):
+    index: int
+    text: str
+    start_offset: float = 0
+
+class SubtitleStyleOverrides(BaseModel):
+    font_size_pct: float = 100
+    position: str = "bottom"  # top, center, bottom
+    color: Optional[str] = None
+
+class CompositionClip(BaseModel):
+    clip_id: str
+    order: int
+    trim_start: Optional[float] = None
+    trim_end: Optional[float] = None
+
+class Composition(BaseModel):
+    id: str
+    job_id: str
+    title: str = "Untitled compilation"
+    clips: List[CompositionClip] = []
+    transition: str = "cut"
+    transition_duration: float = 0.5
+    status: str = "draft"
+    file_path: Optional[str] = None
+    download_url: Optional[str] = None
+    created_at: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
 class Clip(BaseModel):
     id: str
     title: str
@@ -82,6 +115,10 @@ class Clip(BaseModel):
     speaker_segments: Optional[List[Dict]] = None
     trim_start: Optional[float] = None
     trim_end: Optional[float] = None
+    crop_overrides: Optional[ClipCropOverrides] = None
+    subtitle_edits: List[ClipSubtitleEdit] = []
+    subtitle_style: Optional[SubtitleStyleOverrides] = None
+    favorite: bool = False
 
 class Job(BaseModel):
     id: str
@@ -135,6 +172,12 @@ class Job(BaseModel):
         clean_status = self.status.split(" ")[0]
         running_step = _STATUS_STEP.get(clean_status)
 
+        # moments/classify/diarize run in parallel; any of their statuses
+        # means all three are concurrently active.
+        _PARALLEL_STATUSES = {"finding_moments", "classifying", "diarizing"}
+        _PARALLEL_STEP_IDS = {"moments", "classify", "diarize"}
+        in_parallel_phase = clean_status in _PARALLEL_STATUSES
+
         # If the job failed without recording which step broke, blame the first
         # step that never produced its artifact.
         first_pending = next((s["id"] for s in PIPELINE_STEPS if not done_map.get(s["id"])), None)
@@ -147,6 +190,9 @@ class Job(BaseModel):
                 state = "done"
             elif self.status == "failed" and sid == fail_step:
                 state = "failed"
+            elif in_parallel_phase and sid in _PARALLEL_STEP_IDS:
+                # All three siblings run concurrently — show all as running
+                state = "running"
             elif running_step == sid:
                 state = "running"
             else:
@@ -192,3 +238,34 @@ class Job(BaseModel):
                 continue
         jobs.sort(key=lambda x: x.created_at, reverse=True)
         return jobs
+
+    def get_compositions(self) -> List["Composition"]:
+        comp_dir = os.path.join(DATA_DIR, "jobs", self.id, "compositions")
+        if not os.path.exists(comp_dir):
+            return []
+        comps = []
+        for fname in os.listdir(comp_dir):
+            if fname.endswith(".json"):
+                try:
+                    with open(os.path.join(comp_dir, fname)) as f:
+                        comps.append(Composition(**json.load(f)))
+                except Exception:
+                    continue
+        return sorted(comps, key=lambda c: c.created_at, reverse=True)
+
+    def save_composition(self, comp: Composition):
+        comp_dir = os.path.join(DATA_DIR, "jobs", self.id, "compositions")
+        os.makedirs(comp_dir, exist_ok=True)
+        path = os.path.join(comp_dir, f"{comp.id}.json")
+        with open(path, "w") as f:
+            f.write(comp.model_dump_json(indent=2))
+
+    def load_composition(self, comp_id: str) -> Optional["Composition"]:
+        path = os.path.join(DATA_DIR, "jobs", self.id, "compositions", f"{comp_id}.json")
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path) as f:
+                return Composition(**json.load(f))
+        except Exception:
+            return None

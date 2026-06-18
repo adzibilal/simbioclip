@@ -43,6 +43,23 @@ LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "1"))
 # and mount the file at COOKIES_FILE path.
 COOKIES_FILE = os.getenv("COOKIES_FILE", "")
 
+# Auto-extract cookies from installed browser instead of manual cookies.txt.
+# Examples: "chrome", "firefox", "brave", "chromium", "edge"
+# If set, this takes priority over COOKIES_FILE.
+COOKIES_FROM_BROWSER = os.getenv("COOKIES_FROM_BROWSER", "")
+
+# Number of concurrent fragment downloads (higher = faster, default 1)
+CONCURRENT_FRAGMENTS = int(os.getenv("CONCURRENT_FRAGMENTS", "5"))
+
+# aria2c external downloader — dramatically faster for single-file downloads.
+# Requires aria2 to be installed in the container.
+ARIA2C_ENABLED = os.getenv("ARIA2C_ENABLED", "true").lower() == "true"
+ARIA2C_CONNECTIONS = int(os.getenv("ARIA2C_CONNECTIONS", "16"))
+
+# Throttled rate bypass — YouTube rate-limits certain clients. Setting this to
+# a high value (e.g. 200M) tells yt-dlp to ignore the server's throttling hint.
+THROTTLED_RATE = os.getenv("THROTTLED_RATE", "200M")
+
 def get_llm_routers():
     try:
         return json.loads(LLM_ROUTERS_RAW)

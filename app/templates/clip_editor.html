@@ -1,0 +1,807 @@
+{% extends "base.html" %}
+{% block title %}SimbioClip — Edit {{ clip.title }}{% endblock %}
+
+{% block head_extra %}
+<script type="module" src="https://cdn.jsdelivr.net/npm/media-chrome@4/+esm"></script>
+<style>
+    .editor-wrap { max-width: 1400px; margin: 0 auto; padding: 16px 24px; display: flex; flex-direction: column;
+        height: calc(100vh - 140px); min-height: 0; }
+    .editor-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; flex-shrink: 0; }
+    .editor-header-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .editor-header-left h2 { font-size: 17px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .editor-header-left code { font-size: 10px; color: var(--stone); font-family: var(--font-mono); background: var(--surface-soft); padding: 2px 7px; border-radius: 5px; }
+    .back-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 13px; font-weight: 600;
+        color: var(--slate); padding: 6px 14px; border-radius: 9999px; border: 1px solid var(--hairline);
+        background: var(--canvas); transition: all .15s ease; white-space: nowrap; }
+    .back-btn:hover { background: var(--surface-soft); border-color: var(--steel); }
+
+    .editor-body { display: flex; gap: 16px; flex: 1; min-height: 0; }
+    .editor-left { flex: 1; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+
+    /* Video container with Media Chrome */
+    .video-container { position: relative; flex: 1; background: #000; border-radius: 12px; overflow: hidden;
+        min-height: 200px; }
+    .video-container media-controller { width: 100%; height: 100%; --media-primary-color: var(--brand-green);
+        --media-control-background: rgba(0,0,0,0.55);
+        --media-range-track-color: rgba(255,255,255,0.15);
+        --media-range-track-fill-color: var(--brand-green);
+        --media-range-thumb-color: var(--brand-green);
+        --media-range-thumb-fill-color: var(--brand-green);
+        --media-font-family: var(--font-sans);
+        --media-control-hover-background: rgba(0,0,0,0.7);
+        --media-tooltip-background: rgba(0,0,0,0.8);
+        --media-border-radius: 0; }
+    .video-container video { width: 100%; height: 100%; object-fit: contain; }
+    .crop-overlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; pointer-events: none; z-index: 1; }
+    .crop-rect { position: absolute; border: 2.5px solid var(--brand-green);
+        box-shadow: 0 0 0 9999px rgba(0,0,0,0.5); pointer-events: none; }
+    .video-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        background: var(--canvas-dark); color: var(--on-dark-muted); z-index: 2; }
+
+    /* Simplified timeline - no canvas, just clip range + subtitle bars + trim */
+    .timeline-wrap { flex-shrink: 0; background: var(--canvas); border: 1px solid var(--hairline);
+        border-radius: 10px; padding: 4px 0; position: relative; }
+    .timeline-scroll { overflow-x: auto; overflow-y: hidden; padding: 0 14px; }
+    .timeline-scroll::-webkit-scrollbar { height: 5px; }
+    .timeline-scroll::-webkit-scrollbar-track { background: transparent; }
+    .timeline-scroll::-webkit-scrollbar-thumb { background: var(--hairline-strong); border-radius: 3px; }
+    .timeline-inner { position: relative; height: 48px; min-width: 100%; user-select: none; }
+    .timeline-track { position: absolute; left: 0; right: 0; top: 0; bottom: 0;
+        border-radius: 6px; background: var(--surface-soft); overflow: hidden; }
+    .clip-range-bg { position: absolute; top: 0; bottom: 0; background: rgba(0,237,100,0.10);
+        border-top: 2px solid var(--brand-green); border-bottom: 2px solid var(--brand-green);
+        pointer-events: none; z-index: 0; }
+    .sub-marker { position: absolute; top: 4px; bottom: 4px; border-radius: 4px;
+        background: var(--brand-green); opacity: 0.3; min-width: 4px; pointer-events: none; }
+    .sub-marker .sub-text { position: absolute; left: 6px; right: 6px; top: 0; bottom: 0;
+        font-size: 10px; font-weight: 600; color: var(--brand-green-dark); line-height: 40px;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    /* Overlay on track */
+    .timeline-overlay { position: absolute; left: 0; right: 0; top: 0; bottom: 0; pointer-events: none; z-index: 3; }
+    .tl-cover { position: absolute; top: 0; bottom: 0; background: rgba(0,30,43,0.45); pointer-events: none; }
+    .trim-handle { position: absolute; top: 0; bottom: 0; width: 24px; z-index: 4;
+        cursor: ew-resize; pointer-events: auto; display: flex; align-items: center; justify-content: center; }
+    .trim-handle::before { content: ''; position: absolute; top: 0; bottom: 0; width: 16px;
+        background: var(--brand-green); opacity: 0.08; border-radius: 4px; }
+    .trim-handle::after { content: ''; width: 5px; height: 60%; background: var(--brand-green);
+        border-radius: 4px; box-shadow: 0 0 10px rgba(0,237,100,0.6); }
+    .trim-handle:hover::before { opacity: 0.15; }
+    .trim-handle .th-time { position: absolute; top: -18px; font-size: 9px; font-weight: 600;
+        color: var(--brand-green); font-family: var(--font-mono); white-space: nowrap;
+        background: rgba(0,0,0,0.7); padding: 1px 5px; border-radius: 3px; pointer-events: none; }
+    .trim-handle.left { left: 0; transform: translateX(-12px); }
+    .trim-handle.left .th-time { left: 50%; transform: translateX(-50%); }
+    .trim-handle.right { right: 0; transform: translateX(12px); }
+    .trim-handle.right .th-time { left: 50%; transform: translateX(-50%); }
+
+    .timeline-ruler { position: relative; height: 16px; margin: 0 14px 2px; user-select: none; overflow: hidden; }
+    .timeline-ruler .tl-mark { position: absolute; top: 0; font-size: 9px; color: var(--stone);
+        font-family: var(--font-mono); transform: translateX(-50%); }
+    .timeline-ruler .tl-mark::before { content: ''; position: absolute; top: 0; left: 50%; width: 1px;
+        height: 6px; background: var(--hairline-strong); }
+    .clip-indicator { position: absolute; top: 0; bottom: 0; background: rgba(0,237,100,0.25);
+        border-left: 1.5px solid var(--brand-green); border-right: 1.5px solid var(--brand-green);
+        pointer-events: none; z-index: 1; }
+    .playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; z-index: 5;
+        box-shadow: 0 0 6px rgba(255,255,255,0.8); pointer-events: none; }
+    .playhead::before { content: ''; position: absolute; top: -4px; left: -5px; width: 12px; height: 12px;
+        background: #fff; border-radius: 50%; box-shadow: 0 0 6px rgba(255,255,255,0.5); }
+    .timeline-times { display: flex; justify-content: space-between; font-size: 10px; color: var(--slate);
+        font-family: var(--font-mono); padding: 2px 14px 6px; }
+
+    /* Sidebar */
+    .editor-sidebar { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px;
+        overflow-y: auto; }
+    .editor-section { background: var(--canvas); border: 1px solid var(--hairline); border-radius: 10px;
+        padding: 12px 14px; }
+    .editor-section h3 { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+        color: var(--steel); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+    .crop-controls { display: flex; flex-direction: column; gap: 8px; }
+    .crop-controls .cc-row { display: flex; flex-direction: column; gap: 2px; }
+    .crop-controls label { font-size: 11px; font-weight: 600; color: var(--steel);
+        display: flex; justify-content: space-between; }
+    .crop-controls input[type="range"] { width: 100%; accent-color: var(--brand-green-mid); height: 4px; }
+    .subtitle-list { display: flex; flex-direction: column; gap: 4px; max-height: 220px; overflow-y: auto; }
+    .subtitle-list .sr { display: flex; align-items: flex-start; gap: 6px; padding: 5px 7px; border-radius: 6px;
+        border: 1px solid var(--hairline); background: var(--surface); }
+    .subtitle-list .sr:hover { border-color: var(--hairline-strong); }
+    .subtitle-list .sr .stime { font-size: 10px; font-weight: 600; color: var(--stone); font-family: var(--font-mono);
+        white-space: nowrap; min-width: 56px; padding-top: 3px; flex-shrink: 0; }
+    .subtitle-list .sr .stext { flex: 1; font-size: 12px; color: var(--ink); line-height: 1.35; min-width: 0;
+        word-break: break-word; }
+    .subtitle-list .sr .stext textarea { width: 100%; font-size: 12px; padding: 2px 5px; border-radius: 4px;
+        border: 1px solid var(--brand-green-mid); background: var(--canvas); color: var(--ink);
+        font-family: var(--font-sans); resize: vertical; min-height: 26px; }
+    .subtitle-list .sr .sact { display: flex; gap: 2px; flex-shrink: 0; }
+    .subtitle-list .sr .sact button { width: 22px; height: 22px; border-radius: 4px; border: none; cursor: pointer;
+        background: transparent; color: var(--stone); display: flex; align-items: center; justify-content: center;
+        transition: all .15s ease; padding: 0; }
+    .subtitle-list .sr .sact button:hover { background: var(--surface-soft); color: var(--ink); }
+    .subtitle-list .sr.edited { border-color: var(--brand-green-mid); background: var(--surface-feature); }
+    .subtitle-list .sr.edited .stime { color: var(--brand-green-dark); }
+    .subtitle-list .sub-loading, .subtitle-list .sub-empty { font-size: 12px; color: var(--stone);
+        text-align: center; padding: 16px 0; }
+    .style-controls { display: flex; flex-direction: column; gap: 8px; }
+    .style-controls .sg { display: flex; flex-direction: column; gap: 2px; }
+    .style-controls .sg label { font-size: 10px; font-weight: 600; color: var(--stone); text-transform: uppercase; }
+    .style-controls select, .style-controls input { font-size: 12px; padding: 4px 8px; border-radius: 6px;
+        border: 1px solid var(--hairline-strong); background: var(--canvas); color: var(--slate); }
+    .editor-actions { display: flex; gap: 8px; }
+    .editor-actions .btn-primary, .editor-actions .btn-secondary { flex: 1; font-size: 13px; padding: 10px 14px; }
+    .editor-status { font-size: 12px; color: var(--stone); min-height: 20px; }
+
+    @media (max-width: 900px) {
+        .editor-body { flex-direction: column; }
+        .editor-sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; overflow: visible; }
+        .editor-section { flex: 1; min-width: 200px; }
+        .editor-wrap { height: auto; min-height: 100vh; padding: 12px; }
+        .video-container { min-height: 250px; }
+        .timeline-inner { height: 40px; }
+        .trim-handle { width: 20px; }
+        .trim-handle.left { transform: translateX(-10px); }
+        .trim-handle.right { transform: translateX(10px); }
+        .trim-handle .th-time { display: none; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="editor-wrap">
+    <div class="editor-header">
+        <div class="editor-header-left">
+            <a class="back-btn" href="/job/{{ job.id }}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                Back to job
+            </a>
+            <h2 title="{{ clip.title }}">{{ clip.title }}</h2>
+            <code>{{ clip.id[:8] }}</code>
+        </div>
+    </div>
+
+    <div class="editor-body">
+        <!-- Left: Preview + Timeline -->
+        <div class="editor-left">
+            <div class="video-container" id="video-container">
+                <div class="video-loading" id="video-loading"><span class="spinner"></span> Loading…</div>
+                <media-controller id="media-ctrl">
+                    <video slot="media" id="editor-video" playsinline preload="metadata"></video>
+                    <media-control-bar>
+                        <media-play-button></media-play-button>
+                        <media-seek-backward-button seek-offset="2"></media-seek-backward-button>
+                        <media-seek-forward-button seek-offset="2"></media-seek-forward-button>
+                        <media-time-display showduration></media-time-display>
+                        <media-time-range></media-time-range>
+                        <media-playback-rate-button></media-playback-rate-button>
+                        <media-fullscreen-button></media-fullscreen-button>
+                    </media-control-bar>
+                </media-controller>
+                <div class="crop-overlay" id="crop-overlay">
+                    <div class="crop-rect" id="crop-rect"></div>
+                </div>
+            </div>
+
+            <div class="timeline-wrap">
+                <div class="timeline-ruler" id="timeline-ruler">
+                    <div class="clip-indicator" id="clip-indicator"></div>
+                </div>
+                <div class="timeline-scroll" id="timeline-scroll">
+                    <div class="timeline-inner" id="timeline-inner">
+                        <div class="timeline-track" id="timeline-track">
+                            <div class="clip-range-bg" id="clip-range-bg"></div>
+                            <div id="tracks-subtitles"></div>
+                        </div>
+                        <div class="timeline-overlay" id="timeline-overlay">
+                            <div class="tl-cover left-cov" id="left-cover"></div>
+                            <div class="tl-cover right-cov" id="right-cover"></div>
+                            <div class="trim-handle left" id="trim-start-handle" onmousedown="startTrimDrag('start', event)"><span class="th-time" id="th-start-time">0.0s</span></div>
+                            <div class="trim-handle right" id="trim-end-handle" onmousedown="startTrimDrag('end', event)"><span class="th-time" id="th-end-time">0.0s</span></div>
+                            <div class="playhead" id="timeline-playhead"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="timeline-times">
+                    <span id="trim-start-label">0.0s</span>
+                    <span id="trim-duration-label">{{ '%.1f' % clip.duration }}s clip</span>
+                    <span id="source-range-label" style="margin-left:auto;color:var(--stone);">{{ '%.1f' % clip.start }}s – {{ '%.1f' % clip.end }}s in source</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Controls -->
+        <div class="editor-sidebar">
+            <div class="editor-section">
+                <h3>Crop</h3>
+                <div class="crop-controls">
+                    <div class="cc-row">
+                        <label>Pan X <span id="pan-x-val">0</span></label>
+                        <input type="range" id="pan-x" min="-200" max="200" value="0" oninput="onCropSlider()">
+                    </div>
+                    <div class="cc-row">
+                        <label>Pan Y <span id="pan-y-val">0</span></label>
+                        <input type="range" id="pan-y" min="-200" max="200" value="0" oninput="onCropSlider()">
+                    </div>
+                    <div class="cc-row">
+                        <label>Zoom <span id="zoom-val">1.0</span></label>
+                        <input type="range" id="zoom" min="50" max="200" value="100" oninput="onCropSlider()">
+                    </div>
+                </div>
+            </div>
+
+            <div class="editor-section">
+                <h3>Subtitles <span id="sub-count" style="font-weight:400;text-transform:none;letter-spacing:0;"></span></h3>
+                <div class="subtitle-list" id="subtitle-list">
+                    <div class="sub-loading"><span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:6px;"></span>Loading…</div>
+                </div>
+            </div>
+
+            <div class="editor-section">
+                <h3>Style</h3>
+                <div class="style-controls">
+                    <div class="sg">
+                        <label>Caption</label>
+                        <select id="caption-style">
+                            <option value="bold_pop"{% if (job.caption_style or 'bold_pop') == 'bold_pop' %} selected{% endif %}>Bold Pop</option>
+                            <option value="karaoke_highlight"{% if job.caption_style == 'karaoke_highlight' %} selected{% endif %}>Karaoke</option>
+                            <option value="neon"{% if job.caption_style == 'neon' %} selected{% endif %}>Neon</option>
+                            <option value="minimal"{% if job.caption_style == 'minimal' %} selected{% endif %}>Minimal</option>
+                            <option value="podcast"{% if job.caption_style == 'podcast' %} selected{% endif %}>Podcast</option>
+                        </select>
+                    </div>
+                    <div class="sg">
+                        <label>Layout</label>
+                        <select id="layout-mode">
+                            <option value="auto"{% if (job.layout_mode or 'auto') == 'auto' %} selected{% endif %}>Auto</option>
+                            <option value="face_track"{% if job.layout_mode == 'face_track' %} selected{% endif %}>Face Track</option>
+                            <option value="center_crop"{% if job.layout_mode == 'center_crop' %} selected{% endif %}>Center</option>
+                            <option value="talking_head"{% if job.layout_mode == 'talking_head' %} selected{% endif %}>Talking Head</option>
+                            <option value="split_cam"{% if job.layout_mode == 'split_cam' %} selected{% endif %}>Split Cam</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="editor-actions">
+                <button class="btn-secondary" onclick="resetAll()" id="reset-btn">Reset</button>
+                <button class="btn-primary" id="apply-btn" onclick="applyAll()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                    Apply & Re-render
+                </button>
+            </div>
+            <div class="editor-section" style="padding:8px 14px;">
+                <div style="font-size:10px;color:var(--stone);display:flex;flex-wrap:wrap;gap:6px;">
+                    <span><kbd style="background:var(--surface-soft);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);">Space</kbd> Play</span>
+                    <span><kbd style="background:var(--surface-soft);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);">←</kbd><kbd style="background:var(--surface-soft);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);">→</kbd> Seek</span>
+                    <span><kbd style="background:var(--surface-soft);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);">↑</kbd><kbd style="background:var(--surface-soft);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);">↓</kbd> Zoom</span>
+                    <span><kbd style="background:var(--surface-soft);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);">R</kbd> Reset</span>
+                    <span><kbd style="background:var(--surface-soft);padding:1px 5px;border-radius:3px;font-family:var(--font-mono);">⌘+Enter</kbd> Render</span>
+                </div>
+            </div>
+            <div id="editor-status" class="editor-status"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ===== STATE =====
+    var state = {
+        clipId: '{{ clip.id }}',
+        jobId: '{{ job.id }}',
+        apiToken: '{{ api_token }}',
+        clipStart: {{ clip.start }},
+        clipEnd: {{ clip.end }},
+        clipDuration: {{ clip.duration }},
+        sourceDuration: {{ source_duration }},
+        duration: {{ source_duration }},
+        videoUrl: '/jobs/{{ job.id }}/clips/{{ clip.id }}/preview?token={{ api_token }}',
+        panX: {{ clip.crop_overrides.pan_x if clip.crop_overrides else 0 }},
+        panY: {{ clip.crop_overrides.pan_y if clip.crop_overrides else 0 }},
+        zoom: {{ (clip.crop_overrides.zoom * 100) if clip.crop_overrides else 100 }},
+        frameW: 0, frameH: 0,
+        trimStart: {{ clip.start }},
+        trimEnd: {{ clip.end }},
+        segments: [],
+        edits: {},
+        isDragging: false,
+        dragStartX: 0, dragStartY: 0,
+        dragPanX: 0, dragPanY: 0,
+        trimDragging: null,
+    };
+
+    // ===== VIDEO =====
+    var video = document.getElementById('editor-video');
+    video.src = state.videoUrl;
+
+    video.addEventListener('loadedmetadata', function() {
+        document.getElementById('video-loading').style.display = 'none';
+        updateTrimRange();
+        updateTrimDisplay();
+        // Set initial playhead position
+        if (state.duration) {
+            var pct = (state.clipStart / state.duration) * 100;
+            var ph = document.getElementById('timeline-playhead');
+            if (ph) ph.style.left = pct + '%';
+        }
+    });
+
+    video.addEventListener('loadeddata', function() {
+        state.frameW = video.videoWidth;
+        state.frameH = video.videoHeight;
+        updateCropRect();
+        renderTimelineSubtitles();
+        renderRuler();
+    });
+
+    video.addEventListener('timeupdate', function() {
+        updatePlayhead();
+    });
+
+    // ===== PLAYHEAD =====
+    function updatePlayhead() {
+        if (!state.duration || !video.duration) return;
+        var sourceTime = state.clipStart + video.currentTime;
+        var pct = (sourceTime / state.duration) * 100;
+        pct = Math.min(100, Math.max(0, pct));
+        var ph = document.getElementById('timeline-playhead');
+        if (ph) ph.style.left = pct + '%';
+        var scrollEl = document.getElementById('timeline-scroll');
+        var phPx = (pct / 100) * getTimelineWidth();
+        var scrollLeft = scrollEl.scrollLeft;
+        var scrollW = scrollEl.clientWidth;
+        if (phPx < scrollLeft + 30 || phPx > scrollLeft + scrollW - 30) {
+            scrollEl.scrollLeft = phPx - scrollW / 3;
+        }
+    }
+
+    // ===== CROP OVERLAY =====
+    function initCrop() {
+        updateZoomBadge();
+        document.getElementById('pan-x').value = state.panX;
+        document.getElementById('pan-y').value = state.panY;
+        document.getElementById('zoom').value = state.zoom;
+        updateCropLabels();
+    }
+
+    function updateCropRect() {
+        var container = document.getElementById('video-container');
+        var rect = document.getElementById('crop-rect');
+        if (!state.frameW || !state.frameH) return;
+        var cw = container.clientWidth;
+        var ch = container.clientHeight;
+        var scaleX = cw / state.frameW;
+        var scaleY = ch / state.frameH;
+        var scale = Math.min(scaleX, scaleY);
+        var dispW = state.frameW * scale;
+        var dispH = state.frameH * scale;
+        var offX = (cw - dispW) / 2;
+        var offY = (ch - dispH) / 2;
+
+        var ar = 9/16;
+        var cropW, cropH;
+        if (dispW / dispH > ar) {
+            cropH = dispH;
+            cropW = dispH * ar;
+        } else {
+            cropW = dispW;
+            cropH = dispW / ar;
+        }
+
+        var zoomF = state.zoom / 100;
+        var panPxX = state.panX * scale;
+        var panPxY = state.panY * scale;
+
+        var finalW = cropW / zoomF;
+        var finalH = cropH / zoomF;
+        var cx = offX + (dispW - finalW) / 2 + panPxX;
+        var cy = offY + (dispH - finalH) / 2 + panPxY;
+        cx = Math.max(0, Math.min(cx, cw - finalW));
+        cy = Math.max(0, Math.min(cy, ch - finalH));
+
+        rect.style.left = cx + 'px';
+        rect.style.top = cy + 'px';
+        rect.style.width = finalW + 'px';
+        rect.style.height = finalH + 'px';
+    }
+
+    function onCropSlider() {
+        state.panX = parseFloat(document.getElementById('pan-x').value);
+        state.panY = parseFloat(document.getElementById('pan-y').value);
+        state.zoom = parseFloat(document.getElementById('zoom').value);
+        updateCropLabels();
+        updateCropRect();
+        updateZoomBadge();
+    }
+
+    function updateCropLabels() {
+        document.getElementById('pan-x-val').innerText = state.panX;
+        document.getElementById('pan-y-val').innerText = state.panY;
+        document.getElementById('zoom-val').innerText = (state.zoom / 100).toFixed(1);
+    }
+
+    function updateZoomBadge() {
+        var badge = document.getElementById('zoom-badge');
+        if (badge) badge.innerText = (state.zoom / 100).toFixed(1) + '×';
+    }
+
+    var videoContainer = document.getElementById('video-container');
+    videoContainer.addEventListener('mousedown', function(e) {
+        if (e.target === video || e.target.closest('.crop-overlay') || e.target.id === 'crop-rect') {
+            state.isDragging = true;
+            state.dragStartX = e.clientX;
+            state.dragStartY = e.clientY;
+            state.dragPanX = state.panX;
+            state.dragPanY = state.panY;
+            videoContainer.style.cursor = 'grabbing';
+            e.preventDefault();
+        }
+    });
+    document.addEventListener('mousemove', function(e) {
+        if (!state.isDragging) return;
+        var cw = videoContainer.clientWidth;
+        var scale = state.frameW ? cw / state.frameW : 1;
+        var dx = (e.clientX - state.dragStartX) / scale;
+        var dy = (e.clientY - state.dragStartY) / scale;
+        state.panX = Math.max(-200, Math.min(200, state.dragPanX + dx));
+        state.panY = Math.max(-200, Math.min(200, state.dragPanY + dy));
+        document.getElementById('pan-x').value = state.panX;
+        document.getElementById('pan-y').value = state.panY;
+        updateCropLabels();
+        updateCropRect();
+    });
+    document.addEventListener('mouseup', function() {
+        if (state.isDragging) {
+            state.isDragging = false;
+            videoContainer.style.cursor = '';
+        }
+    });
+
+    videoContainer.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var delta = e.deltaY > 0 ? -5 : 5;
+        state.zoom = Math.max(50, Math.min(200, state.zoom + delta));
+        document.getElementById('zoom').value = state.zoom;
+        updateCropLabels();
+        updateCropRect();
+        updateZoomBadge();
+    }, { passive: false });
+
+    // ===== TIMELINE =====
+    var PPS = 50;
+
+    function getTimelineWidth() {
+        return state.duration * PPS;
+    }
+
+    function formatTime(s) {
+        s = Math.max(0, s || 0);
+        var m = Math.floor(s / 60);
+        var sec = Math.floor(s % 60);
+        return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+
+    function renderRuler() {
+        var ruler = document.getElementById('timeline-ruler');
+        ruler.innerHTML = '';
+        var ci = document.createElement('div');
+        ci.className = 'clip-indicator';
+        ci.id = 'clip-indicator';
+        ruler.appendChild(ci);
+        var interval = Math.max(1, Math.ceil(state.duration / 20));
+        for (var t = 0; t <= state.duration; t += interval) {
+            var m = document.createElement('div');
+            m.className = 'tl-mark';
+            m.style.left = ((t / state.duration) * 100) + '%';
+            m.textContent = t + 's';
+            ruler.appendChild(m);
+        }
+        if (state.duration) updateClipIndicator();
+    }
+
+    function updateClipIndicator() {
+        if (!state.duration) return;
+        var sPct = (state.clipStart / state.duration) * 100;
+        var ePct = (state.clipEnd / state.duration) * 100;
+        var el = document.getElementById('clip-indicator');
+        if (el) {
+            el.style.left = sPct + '%';
+            el.style.width = (ePct - sPct) + '%';
+        }
+    }
+
+    function renderClipRangeBg() {
+        var el = document.getElementById('clip-range-bg');
+        if (!el) return;
+        var sPct = (state.clipStart / state.duration) * 100;
+        var ePct = (state.clipEnd / state.duration) * 100;
+        el.style.left = sPct + '%';
+        el.style.width = (ePct - sPct) + '%';
+    }
+
+    function renderTimelineSubtitles() {
+        var container = document.getElementById('tracks-subtitles');
+        if (!container) return;
+        container.innerHTML = '';
+        state.segments.forEach(function(seg) {
+            var el = document.createElement('div');
+            el.className = 'sub-marker';
+            var sPct = (Math.max(0, seg.start) / state.duration) * 100;
+            var ePct = (Math.min(seg.end, state.duration) / state.duration) * 100;
+            if (ePct - sPct < 0.3) ePct = sPct + 0.3;
+            el.style.left = sPct + '%';
+            el.style.width = (ePct - sPct) + '%';
+            var txt = document.createElement('span');
+            txt.className = 'sub-text';
+            var edited = state.edits[seg.index];
+            txt.textContent = edited ? edited.text : seg.text;
+            el.appendChild(txt);
+            el.title = (edited ? edited.text : seg.text) + ' [' + formatTime(seg.start) + ']';
+            container.appendChild(el);
+        });
+        renderClipRangeBg();
+    }
+
+    // --- Trim handles ---
+    function startTrimDrag(which, e) {
+        e.preventDefault();
+        state.trimDragging = which;
+        document.addEventListener('mousemove', onTrimDrag);
+        document.addEventListener('mouseup', stopTrimDrag);
+    }
+
+    function onTrimDrag(e) {
+        var inner = document.getElementById('timeline-inner');
+        var scrollEl = document.getElementById('timeline-scroll');
+        var innerRect = inner.getBoundingClientRect();
+        var mx = e.clientX - innerRect.left + scrollEl.scrollLeft;
+        var pct = Math.max(0, Math.min(1, mx / getTimelineWidth()));
+        var time = pct * state.duration;
+        if (state.trimDragging === 'start') {
+            state.trimStart = Math.max(state.clipStart, Math.min(time, state.trimEnd - 0.5));
+        } else {
+            state.trimEnd = Math.min(state.clipEnd, Math.max(time, state.trimStart + 0.5));
+        }
+        updateTrimDisplay();
+        updateTrimRange();
+    }
+
+    function stopTrimDrag() {
+        state.trimDragging = null;
+        document.removeEventListener('mousemove', onTrimDrag);
+        document.removeEventListener('mouseup', stopTrimDrag);
+    }
+
+    function updateTrimRange() {
+        if (!state.duration) return;
+        var sPct = (state.trimStart / state.duration) * 100;
+        var ePct = (state.trimEnd / state.duration) * 100;
+        var csPct = (state.clipStart / state.duration) * 100;
+        var cePct = (state.clipEnd / state.duration) * 100;
+        var leftCover = document.getElementById('left-cover');
+        var rightCover = document.getElementById('right-cover');
+        if (leftCover) {
+            leftCover.style.left = csPct + '%';
+            leftCover.style.width = (sPct - csPct) + '%';
+        }
+        if (rightCover) {
+            rightCover.style.left = ePct + '%';
+            rightCover.style.width = (cePct - ePct) + '%';
+        }
+        var sh = document.getElementById('trim-start-handle');
+        var eh = document.getElementById('trim-end-handle');
+        if (sh) sh.style.left = sPct + '%';
+        if (eh) eh.style.left = ePct + '%';
+        var st = document.getElementById('th-start-time');
+        var et = document.getElementById('th-end-time');
+        if (st) st.innerText = formatTime(state.trimStart);
+        if (et) et.innerText = formatTime(state.trimEnd);
+    }
+
+    function updateTrimDisplay() {
+        document.getElementById('trim-start-label').innerText = (state.trimStart - state.clipStart).toFixed(1) + 's of clip';
+        document.getElementById('trim-duration-label').innerText = (state.trimEnd - state.trimStart).toFixed(1) + 's clip';
+    }
+
+    // ===== SUBTITLES =====
+    var subData = {{ clip_segments | tojson }};
+
+    function initSubtitles() {
+        state.segments = subData || [];
+        state.edits = {};
+        state.segments.forEach(function(seg) {
+            if (seg.edited) {
+                state.edits[seg.index] = { text: seg.text };
+            }
+        });
+        renderSubtitleList();
+        renderTimelineSubtitles();
+        document.getElementById('sub-count').innerText = '(' + state.segments.length + ')';
+    }
+
+    function renderSubtitleList() {
+        var list = document.getElementById('subtitle-list');
+        if (!state.segments.length) {
+            list.innerHTML = '<div class="sub-empty">No subtitles in this clip.</div>';
+            return;
+        }
+        var html = '';
+        state.segments.forEach(function(seg, i) {
+            var edited = state.edits[seg.index];
+            var text = edited ? edited.text : seg.text;
+            var isEdited = !!edited;
+            html += '<div class="sr' + (isEdited ? ' edited' : '') + '" data-idx="' + i + '">';
+            html += '<span class="stime">' + formatTime(seg.start) + '</span>';
+            html += '<div class="stext">';
+            if (isEdited) {
+                html += '<textarea onchange="onSubEdit(' + seg.index + ', this.value)" data-original="' + escHtml(seg.text) + '">' + escHtml(text) + '</textarea>';
+            } else {
+                html += '<span>' + escHtml(text) + '</span>';
+            }
+            html += '</div>';
+            html += '<div class="sact">';
+            if (!isEdited) {
+                html += '<button title="Edit" onclick="startSubEdit(' + seg.index + ')"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>';
+            } else {
+                html += '<button title="Revert" onclick="revertSubEdit(' + seg.index + ')"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></button>';
+            }
+            html += '</div></div>';
+        });
+        list.innerHTML = html;
+    }
+
+    function startSubEdit(idx) {
+        var seg = state.segments.find(function(s) { return s.index === idx; });
+        if (!seg) return;
+        state.edits[idx] = { text: seg.text };
+        renderSubtitleList();
+    }
+
+    function onSubEdit(idx, value) {
+        state.edits[idx] = { text: value };
+    }
+
+    function revertSubEdit(idx) {
+        delete state.edits[idx];
+        renderSubtitleList();
+    }
+
+    function escHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ===== APPLY =====
+    function applyAll() {
+        var btn = document.getElementById('apply-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;"></span> Rendering…';
+        var statusEl = document.getElementById('editor-status');
+        statusEl.innerText = 'Applying edits and re-rendering…';
+
+        var edits = [];
+        Object.keys(state.edits).forEach(function(idx) {
+            edits.push({ index: parseInt(idx), text: state.edits[idx].text, start_offset: 0 });
+        });
+
+        var payload = {
+            crop: {
+                pan_x: state.panX,
+                pan_y: state.panY,
+                zoom: state.zoom / 100,
+            },
+            subtitle_edits: edits,
+            subtitle_style: {
+                font_size_pct: 100,
+                position: 'bottom',
+            },
+            caption_style: document.getElementById('caption-style').value,
+            layout_mode: document.getElementById('layout-mode').value,
+            trim: {
+                start: state.trimStart,
+                end: state.trimEnd,
+            },
+        };
+
+        fetch('/jobs/' + state.jobId + '/clips/' + state.clipId + '/apply', {
+            method: 'POST',
+            headers: {
+                'Authorization': 'Bearer ' + state.apiToken,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload),
+        }).then(function(r) {
+            if (r.ok) return r.json();
+            return r.text().then(function(t) { throw new Error(t); });
+        }).then(function(result) {
+            statusEl.innerText = 'Clip re-rendered successfully!';
+            showToast('Clip updated');
+            btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Apply & Re-render';
+            btn.disabled = false;
+            if (result.download_url) {
+                video.src = result.download_url + '?token=' + state.apiToken + '&_=' + Date.now();
+                video.load();
+            }
+        }).catch(function(e) {
+            statusEl.innerText = 'Error: ' + e.message;
+            showToast('Rendering failed: ' + e.message, true);
+            btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Apply & Re-render';
+            btn.disabled = false;
+        });
+    }
+
+    // ===== RESET =====
+    function resetAll() {
+        state.panX = 0;
+        state.panY = 0;
+        state.zoom = 100;
+        state.edits = {};
+        state.trimStart = state.clipStart;
+        state.trimEnd = state.clipEnd;
+        document.getElementById('pan-x').value = 0;
+        document.getElementById('pan-y').value = 0;
+        document.getElementById('zoom').value = 100;
+        updateCropLabels();
+        updateCropRect();
+        updateZoomBadge();
+        updateTrimDisplay();
+        updateTrimRange();
+        renderSubtitleList();
+        renderTimelineSubtitles();
+        document.getElementById('editor-status').innerText = '';
+    }
+
+    // ===== KEYBOARD SHORTCUTS =====
+    document.addEventListener('keydown', function(e) {
+        if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+        switch (e.key) {
+            case 'ArrowUp':
+                e.preventDefault();
+                state.zoom = Math.min(200, state.zoom + 5);
+                document.getElementById('zoom').value = state.zoom;
+                updateCropLabels();
+                updateCropRect();
+                updateZoomBadge();
+                break;
+            case 'ArrowDown':
+                e.preventDefault();
+                state.zoom = Math.max(50, state.zoom - 5);
+                document.getElementById('zoom').value = state.zoom;
+                updateCropLabels();
+                updateCropRect();
+                updateZoomBadge();
+                break;
+            case 'r':
+            case 'R':
+                resetAll();
+                break;
+            case 'Enter':
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    applyAll();
+                }
+                break;
+        }
+    });
+
+    // ===== INIT =====
+    initCrop();
+    initSubtitles();
+
+    state.trimStart = state.clipStart;
+    state.trimEnd = state.clipEnd;
+    if (state.duration) {
+        updateTrimRange();
+        updateTrimDisplay();
+    }
+
+    if (state.duration) {
+        document.getElementById('timeline-inner').style.width = getTimelineWidth() + 'px';
+    }
+
+    renderRuler();
+    renderTimelineSubtitles();
+
+    window.addEventListener('resize', function() {
+        if (state.frameW) updateCropRect();
+    });
+</script>
+{% endblock %}

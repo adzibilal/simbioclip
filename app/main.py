@@ -9,14 +9,14 @@ import logging
 from datetime import datetime
 from typing import Optional, List
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, Cookie, Form, File, UploadFile, Request, status, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from redis import Redis
 from rq import Queue
 
 from app.config import API_TOKEN, REDIS_URL, DATA_DIR, COOKIES_FILE
-from app.models import Job, Clip, PIPELINE_STEPS, CLIP_DURATION_PRESETS
+from app.models import Job, Clip, ClipCropOverrides, ClipSubtitleEdit, SubtitleStyleOverrides, Composition, CompositionClip, PIPELINE_STEPS, CLIP_DURATION_PRESETS
 from app.pipeline.orchestrator import process_video_job, reset_job_step
 from app.pipeline.render import render_job_clips, render_one_clip, CAPTION_STYLES
 from app.pipeline.download import download_job_video
@@ -173,6 +173,7 @@ async def preview_video(source_url: str = Form(...), _: str = Depends(verify_tok
             "yt-dlp", "--dump-json", "--no-download",
             "--no-playlist", "--quiet", "--no-warnings",
             "--js-runtimes", "node",
+            "--extractor-args", "youtube:player_client=tv_embedded,ios,android,web",
         ]
         if COOKIES_FILE and os.path.exists(COOKIES_FILE):
             with open(COOKIES_FILE) as _f:
@@ -225,6 +226,64 @@ async def update_cookies(cookies: str = Form(...), _: str = Depends(verify_token
         return {"ok": True, "lines": len(lines)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to write cookies: {str(e)}")
+
+# ── YouTube Auth ────────────────────────────────────────────────────────────
+
+CHROME_PROFILE = "/app/data/chrome-profile"
+
+
+def _test_cookies(filepath: str) -> bool:
+    """Return True if cookies file exists and works against a YouTube video."""
+    if not filepath or not os.path.exists(filepath):
+        return False
+    with open(filepath) as f:
+        content = f.read()
+    if "__Secure-3PSID" not in content:
+        return False
+    result = subprocess.run(
+        [
+            "yt-dlp",
+            "--cookies", filepath,
+            "--extractor-args", "youtube:player_client=android,web",
+            "--skip-download", "--quiet",
+            "--print", "title",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        ],
+        capture_output=True, text=True, timeout=30,
+    )
+    return result.returncode == 0
+
+
+@app.get("/api/auth/youtube")
+async def auth_youtube_check(_: str = Depends(verify_token)):
+    """Check YouTube connection status."""
+    return {"connected": _test_cookies(COOKIES_FILE)}
+
+
+@app.post("/api/auth/youtube/refresh")
+async def auth_youtube_refresh(_: str = Depends(verify_token)):
+    """Re-extract cookies from Chrome profile (if user logged in there)."""
+    if not COOKIES_FILE:
+        raise HTTPException(status_code=500, detail="COOKIES_FILE not configured")
+    result = subprocess.run(
+        [
+            "yt-dlp",
+            "--cookies-from-browser", f"chrome:{CHROME_PROFILE}",
+            "--cookies", COOKIES_FILE,
+            "--skip-download", "--quiet",
+            "--print", "title",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        ],
+        capture_output=True, text=True, timeout=30,
+    )
+    if result.returncode == 0 and _test_cookies(COOKIES_FILE):
+        with open(COOKIES_FILE) as f:
+            lines = len(f.read().strip().splitlines())
+        logger.info(f"Cookies refreshed from Chrome ({lines} lines)")
+        return {"ok": True, "lines": lines}
+    detail = result.stderr[:500] if result.stderr else "No cookies in Chrome profile"
+    raise HTTPException(status_code=400, detail=detail)
+
 
 @app.post("/jobs")
 async def create_job(
@@ -700,6 +759,22 @@ async def trim_clip(
     html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
     return HTMLResponse(html)
 
+
+@app.post("/jobs/{job_id}/clips/{clip_id}/favorite")
+async def toggle_clip_favorite(job_id: str, clip_id: str, _: str = Depends(verify_token)):
+    """Toggle the favorite/love state of a clip."""
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    target.favorite = not target.favorite
+    job.save()
+    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    return HTMLResponse(html)
+
+
 @app.post("/cleanup")
 async def cleanup_old_jobs(days: int = 7, _: str = Depends(verify_token)):
     """Deletes jobs older than N days (0 = all jobs) to free disk space."""
@@ -777,7 +852,493 @@ async def get_clip_thumbnail(job_id: str, clip_id: str, _: str = Depends(verify_
     return FileResponse(path=thumb_path, media_type="image/jpeg")
 
 
+# --- Studio (crop + subtitle + composition) ---
+
+@app.get("/job/{job_id}/studio", response_class=HTMLResponse)
+async def get_studio_page(job_id: str, request: Request, api_token: Optional[str] = Cookie(None)):
+    if api_token != API_TOKEN:
+        return templates.TemplateResponse(request, "login.html", {"error": None})
+    job = Job.load(job_id)
+    if not job:
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    compositions = job.get_compositions()
+    return templates.TemplateResponse(request, "studio.html", {
+        "job": job, "api_token": API_TOKEN, "compositions": compositions,
+    })
+
+MIME_MAP = {
+    ".mp4": "video/mp4", ".mov": "video/quicktime",
+    ".webm": "video/webm", ".avi": "video/x-msvideo",
+    ".mkv": "video/x-matroska", ".m4v": "video/mp4",
+}
+
+@app.get("/jobs/{job_id}/source")
+async def get_source_video(job_id: str, _: str = Depends(verify_token)):
+    """Serves the raw source video file for the clip editor."""
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    job_dir = job.get_dir()
+    source_files = glob.glob(os.path.join(job_dir, "source.*"))
+    if not source_files:
+        raise HTTPException(status_code=404, detail="Source video not found")
+    ext = os.path.splitext(source_files[0])[1].lower()
+    mime = MIME_MAP.get(ext, "video/mp4")
+    return FileResponse(path=source_files[0], media_type=mime)
+
+@app.get("/jobs/{job_id}/clips/{clip_id}/preview")
+async def get_clip_preview(job_id: str, clip_id: str, _: str = Depends(verify_token)):
+    """Serves the rendered clip file for the editor preview (trimmed to clip bounds)."""
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    # Prefer the rendered clip file
+    if target.file_path and os.path.exists(target.file_path):
+        ext = os.path.splitext(target.file_path)[1].lower()
+        mime = MIME_MAP.get(ext, "video/mp4")
+        return FileResponse(path=target.file_path, media_type=mime)
+
+    # Fallback: serve the source video
+    job_dir = job.get_dir()
+    source_files = glob.glob(os.path.join(job_dir, "source.*"))
+    if not source_files:
+        raise HTTPException(status_code=404, detail="Source video not found")
+    ext = os.path.splitext(source_files[0])[1].lower()
+    mime = MIME_MAP.get(ext, "video/mp4")
+    return FileResponse(path=source_files[0], media_type=mime)
+
+@app.get("/job/{job_id}/clips/{clip_id}/crop-frame")
+async def get_crop_frame(job_id: str, clip_id: str, t: float = Query(2.5), _: str = Depends(verify_token)):
+    """Serve a still frame from the source video at time `t` for the crop editor."""
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    job_dir = job.get_dir()
+    source_files = glob.glob(os.path.join(job_dir, "source.*"))
+    if not source_files:
+        raise HTTPException(status_code=404, detail="Source video not found")
+    video_path = source_files[0]
+
+    frame_time = max(target.start, min(t, target.end))
+    try:
+        proc = subprocess.run([
+            "ffmpeg", "-y", "-ss", f"{frame_time:.3f}",
+            "-i", video_path, "-vframes", "1",
+            "-vf", "scale=720:-1", "-f", "image2pipe", "-",
+        ], capture_output=True, timeout=30)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr[:200])
+        return Response(content=proc.stdout, media_type="image/jpeg")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to extract frame: {e}")
+
+@app.post("/job/{job_id}/clips/{clip_id}/crop")
+async def save_crop_overrides(
+    job_id: str, clip_id: str,
+    pan_x: float = Form(0), pan_y: float = Form(0), zoom: float = Form(1.0),
+    _: str = Depends(verify_token),
+):
+    """Save crop overrides and re-render the clip."""
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    target.crop_overrides = ClipCropOverrides(pan_x=pan_x, pan_y=pan_y, zoom=zoom)
+    job.save()
+
+    # Trigger re-render
+    job_dir = job.get_dir()
+    seg_path = os.path.join(job_dir, "segments.json")
+    if not os.path.exists(seg_path):
+        raise HTTPException(status_code=400, detail="No saved segments. Run full pipeline first.")
+    source_files = glob.glob(os.path.join(job_dir, "source.*"))
+    video_path = source_files[0] if source_files else None
+    if not video_path or not os.path.exists(video_path):
+        from app.pipeline.download import download_job_video
+        video_path = download_job_video(job)
+
+    with open(seg_path, "r") as f:
+        segments = json.load(f)
+    diar_path = os.path.join(job_dir, "diarization.json")
+    diarized = None
+    if os.path.exists(diar_path):
+        with open(diar_path, "r") as f:
+            diarized = json.load(f)
+
+    if target.file_path and os.path.exists(target.file_path):
+        try: os.remove(target.file_path)
+        except Exception: pass
+
+    try:
+        render_one_clip(job=job, clip=target, video_path=video_path,
+                        segments=segments, diarized=diarized)
+        job.save()
+        logger.info(f"Crop re-render complete: {clip_id}")
+    except Exception as e:
+        logger.exception(f"Crop re-render failed for {clip_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Render failed: {e}")
+
+    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    return HTMLResponse(html)
+
+@app.get("/job/{job_id}/clips/{clip_id}/subtitles")
+async def get_clip_subtitles(job_id: str, clip_id: str, _: str = Depends(verify_token)):
+    """Return subtitle segments for a clip as JSON."""
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    seg_path = os.path.join(job.get_dir(), "segments.json")
+    if not os.path.exists(seg_path):
+        raise HTTPException(status_code=404, detail="No transcript segments found")
+
+    with open(seg_path) as f:
+        all_segments = json.load(f)
+
+    # Filter segments overlapping this clip's time window
+    clip_segments = []
+    for i, seg in enumerate(all_segments):
+        s, e = seg["start"], seg["end"]
+        if s < target.end and e > target.start:
+            clip_segments.append({
+                "index": i,
+                "original_index": i,
+                "start": max(s, target.start),
+                "end": min(e, target.end),
+                "text": seg["text"],
+                "edited": False,
+            })
+
+    # Apply any existing edits
+    edited_map = {e.index: e for e in (target.subtitle_edits or [])}
+    for seg in clip_segments:
+        if seg["original_index"] in edited_map:
+            ed = edited_map[seg["original_index"]]
+            seg["text"] = ed.text
+            seg["edited"] = True
+            if ed.start_offset:
+                seg["start"] += ed.start_offset
+                seg["end"] += ed.start_offset
+
+    return {
+        "clip_id": clip_id,
+        "duration": target.duration,
+        "segments": clip_segments,
+        "style": target.subtitle_style.model_dump() if target.subtitle_style else None,
+    }
+
+@app.post("/job/{job_id}/clips/{clip_id}/subtitles")
+async def save_clip_subtitles(
+    job_id: str, clip_id: str,
+    request: Request, _: str = Depends(verify_token),
+):
+    """Save subtitle edits and re-render the clip."""
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    body = await request.json()
+    edits = body.get("edits", [])
+    target.subtitle_edits = [ClipSubtitleEdit(**e) for e in edits]
+    if "style" in body and body["style"]:
+        target.subtitle_style = SubtitleStyleOverrides(**body["style"])
+    job.save()
+
+    # Trigger re-render
+    job_dir = job.get_dir()
+    seg_path = os.path.join(job_dir, "segments.json")
+    if not os.path.exists(seg_path):
+        raise HTTPException(status_code=400, detail="No saved segments.")
+    source_files = glob.glob(os.path.join(job_dir, "source.*"))
+    video_path = source_files[0] if source_files else None
+    if not video_path or not os.path.exists(video_path):
+        from app.pipeline.download import download_job_video
+        video_path = download_job_video(job)
+
+    with open(seg_path) as f:
+        segments = json.load(f)
+    diar_path = os.path.join(job_dir, "diarization.json")
+    diarized = None
+    if os.path.exists(diar_path):
+        with open(diar_path) as f:
+            diarized = json.load(f)
+
+    if target.file_path and os.path.exists(target.file_path):
+        try: os.remove(target.file_path)
+        except Exception: pass
+
+    try:
+        render_one_clip(job=job, clip=target, video_path=video_path,
+                        segments=segments, diarized=diarized)
+        job.save()
+        logger.info(f"Subtitle re-render complete: {clip_id}")
+    except Exception as e:
+        logger.exception(f"Subtitle re-render failed for {clip_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Render failed: {e}")
+
+    return {"ok": True}
+
+
+# --- Composition endpoints ---
+
+@app.post("/jobs/{job_id}/compositions")
+async def create_composition(job_id: str, title: str = Form("Untitled compilation"), _: str = Depends(verify_token)):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    comp = Composition(
+        id=str(uuid.uuid4()),
+        job_id=job_id,
+        title=title,
+        clips=[CompositionClip(clip_id=c.id, order=i) for i, c in enumerate(job.clips) if c.download_url],
+    )
+    job.save_composition(comp)
+    return comp.model_dump()
+
+@app.get("/jobs/{job_id}/compositions")
+async def list_compositions(job_id: str, _: str = Depends(verify_token)):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return [c.model_dump() for c in job.get_compositions()]
+
+@app.post("/jobs/{job_id}/compositions/{comp_id}/clips")
+async def update_composition_clips(job_id: str, comp_id: str, request: Request, _: str = Depends(verify_token)):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    comp = job.load_composition(comp_id)
+    if not comp:
+        raise HTTPException(status_code=404, detail="Composition not found")
+
+    body = await request.json()
+    clips_data = body.get("clips", [])
+    comp.clips = [CompositionClip(**c) for c in clips_data]
+    if "transition" in body:
+        comp.transition = body["transition"]
+    if "transition_duration" in body:
+        comp.transition_duration = float(body["transition_duration"])
+    if "title" in body:
+        comp.title = body["title"]
+
+    job.save_composition(comp)
+    return comp.model_dump()
+
+@app.post("/jobs/{job_id}/compositions/{comp_id}/render")
+async def render_composition(job_id: str, comp_id: str, _: str = Depends(verify_token)):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    comp = job.load_composition(comp_id)
+    if not comp:
+        raise HTTPException(status_code=404, detail="Composition not found")
+
+    comp.status = "rendering"
+    job.save_composition(comp)
+
+    from app.pipeline.composer import render_composition as _render_comp
+    try:
+        output_path = _render_comp(comp, job)
+        comp.status = "done"
+        comp.file_path = output_path
+        comp.download_url = f"/jobs/{job_id}/compositions/{comp_id}/download"
+        job.save_composition(comp)
+        logger.info(f"Composition rendered: {comp_id}")
+        return {"status": "done", "download_url": comp.download_url}
+    except Exception as e:
+        logger.exception(f"Composition render failed: {e}")
+        comp.status = "failed"
+        job.save_composition(comp)
+        raise HTTPException(status_code=500, detail=f"Render failed: {e}")
+
+@app.get("/jobs/{job_id}/compositions/{comp_id}/download")
+async def download_composition(job_id: str, comp_id: str, _: str = Depends(verify_token)):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    comp = job.load_composition(comp_id)
+    if not comp or not comp.file_path or not os.path.exists(comp.file_path):
+        raise HTTPException(status_code=404, detail="Composition not found or not rendered")
+    return FileResponse(path=comp.file_path, media_type="video/mp4",
+                        filename=f"{comp.title.replace(' ', '_')}.mp4")
+
+@app.delete("/jobs/{job_id}/compositions/{comp_id}")
+async def delete_composition(job_id: str, comp_id: str, _: str = Depends(verify_token)):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    comp = job.load_composition(comp_id)
+    if not comp:
+        raise HTTPException(status_code=404, detail="Composition not found")
+    comp_path = os.path.join(job.get_dir(), "compositions", f"{comp_id}.json")
+    if os.path.exists(comp_path):
+        os.remove(comp_path)
+    if comp.file_path and os.path.exists(comp.file_path):
+        try: os.remove(comp.file_path)
+        except: pass
+    return {"ok": True}
+
+
 # Job detail HTML page
+# --- Per-clip editor ---
+
+@app.get("/job/{job_id}/clip/{clip_id}/edit", response_class=HTMLResponse)
+async def get_clip_editor(job_id: str, clip_id: str, request: Request, api_token: Optional[str] = Cookie(None)):
+    if api_token != API_TOKEN:
+        return templates.TemplateResponse(request, "login.html", {"error": None})
+    job = Job.load(job_id)
+    if not job:
+        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        return RedirectResponse(url=f"/job/{job_id}", status_code=status.HTTP_303_SEE_OTHER)
+
+    # Load segments for this clip (absolute timestamps from source)
+    seg_path = os.path.join(job.get_dir(), "segments.json")
+    clip_segments = []
+    if os.path.exists(seg_path):
+        with open(seg_path, "r") as f:
+            all_segments = json.load(f)
+        for i, seg in enumerate(all_segments):
+            s, e = seg["start"], seg["end"]
+            if s < target.end and e > target.start:
+                clip_segments.append({
+                    "index": i,
+                    "start": max(s, target.start),  # absolute
+                    "end": min(e, target.end),      # absolute
+                    "text": seg["text"],
+                })
+
+    # Apply existing subtitle edits
+    edited_map = {e.index: e for e in (target.subtitle_edits or [])}
+    for seg in clip_segments:
+        if seg["index"] in edited_map:
+            seg["text"] = edited_map[seg["index"]].text
+            seg["edited"] = True
+
+    # Detect source video duration
+    source_duration = 0
+    source_files = glob.glob(os.path.join(job.get_dir(), "source.*"))
+    if source_files:
+        try:
+            result = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", source_files[0]],
+                capture_output=True, text=True, timeout=30
+            )
+            source_duration = float(result.stdout.strip() or 0)
+        except Exception:
+            source_duration = target.end  # fallback
+
+    return templates.TemplateResponse(request, "clip_editor.html", {
+        "job": job, "clip": target, "api_token": API_TOKEN,
+        "clip_segments": clip_segments, "source_duration": source_duration,
+    })
+
+
+@app.post("/jobs/{job_id}/clips/{clip_id}/apply")
+async def apply_clip_edits(
+    job_id: str, clip_id: str, request: Request,
+    _: str = Depends(verify_token),
+):
+    """Save all clip edits (crop, subtitles, style, trim) and re-render once."""
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    body = await request.json()
+
+    # 1. Crop overrides
+    crop = body.get("crop")
+    if crop:
+        target.crop_overrides = ClipCropOverrides(
+            pan_x=float(crop.get("pan_x", 0)),
+            pan_y=float(crop.get("pan_y", 0)),
+            zoom=float(crop.get("zoom", 1.0)),
+        )
+
+    # 2. Subtitle edits
+    edits = body.get("subtitle_edits", [])
+    target.subtitle_edits = [ClipSubtitleEdit(**e) for e in edits]
+
+    # 3. Subtitle style
+    style = body.get("subtitle_style")
+    if style:
+        target.subtitle_style = SubtitleStyleOverrides(**style)
+
+    # 4. Trim
+    trim = body.get("trim")
+    if trim:
+        target.trim_start = float(trim.get("start", target.start))
+        target.trim_end = float(trim.get("end", target.end))
+
+    job.save()
+
+    # Override layout / caption style
+    override_layout = body.get("layout_mode")
+    override_caption_style = body.get("caption_style")
+
+    # Trigger re-render
+    job_dir = job.get_dir()
+    seg_path = os.path.join(job_dir, "segments.json")
+    if not os.path.exists(seg_path):
+        raise HTTPException(status_code=400, detail="No saved segments. Run full pipeline first.")
+    source_files = glob.glob(os.path.join(job_dir, "source.*"))
+    video_path = source_files[0] if source_files else None
+    if not video_path or not os.path.exists(video_path):
+        from app.pipeline.download import download_job_video
+        video_path = download_job_video(job)
+
+    with open(seg_path, "r") as f:
+        segments = json.load(f)
+    diar_path = os.path.join(job_dir, "diarization.json")
+    diarized = None
+    if os.path.exists(diar_path):
+        with open(diar_path, "r") as f:
+            diarized = json.load(f)
+
+    if target.file_path and os.path.exists(target.file_path):
+        try:
+            os.remove(target.file_path)
+        except Exception:
+            pass
+
+    try:
+        render_one_clip(
+            job=job, clip=target, video_path=video_path,
+            segments=segments, diarized=diarized,
+            override_layout=override_layout if override_layout and override_layout != "auto" else None,
+            override_caption_style=override_caption_style,
+        )
+        job.save()
+        logger.info(f"Apply edits re-render complete: {clip_id}")
+        return {"ok": True, "download_url": target.download_url}
+    except Exception as e:
+        logger.exception(f"Apply edits re-render failed for {clip_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Render failed: {e}")
+
+
 @app.get("/job/{job_id}", response_class=HTMLResponse)
 async def get_job_detail_page(job_id: str, request: Request, api_token: Optional[str] = Cookie(None)):
     """Renders the full job detail page (status + clips with video previews)."""

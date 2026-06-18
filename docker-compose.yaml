@@ -3,7 +3,7 @@ services:
     build: .
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://simbioclip-redis:6379/0
       - API_TOKEN=${API_TOKEN}
       - LLM_ROUTERS=${LLM_ROUTERS}
       - STT_MODE=${STT_MODE}
@@ -47,7 +47,7 @@ services:
     build: .
     command: python3 -m app.worker
     environment:
-      - REDIS_URL=redis://redis:6379/0
+      - REDIS_URL=redis://simbioclip-redis:6379/0
       - API_TOKEN=${API_TOKEN}
       - LLM_ROUTERS=${LLM_ROUTERS}
       - STT_MODE=${STT_MODE}
@@ -72,6 +72,7 @@ services:
       - coolify
 
   redis:
+    container_name: simbioclip-redis
     image: redis:7-alpine
     volumes:
       - redis_data:/data

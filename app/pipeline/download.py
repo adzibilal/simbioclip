@@ -2,12 +2,51 @@ import os
 import glob
 import time
 import logging
+import shutil
+import subprocess
 import threading
 import yt_dlp
 from app.models import Job
-from app.config import COOKIES_FILE
+from app.config import (
+    COOKIES_FILE,
+    COOKIES_FROM_BROWSER,
+    CONCURRENT_FRAGMENTS,
+    ARIA2C_ENABLED,
+    ARIA2C_CONNECTIONS,
+    THROTTLED_RATE,
+)
 
 logger = logging.getLogger("simbioclip.pipeline.download")
+
+
+def _refresh_cookies():
+    """Re-extract cookies to COOKIES_FILE using Chrome's cookie database.
+
+    Requires the user to have run ``python manage.py auth`` at least once so that
+    a Chrome profile exists at /app/data/chrome-profile with active YouTube login.
+    After that, this function can re-export cookies without further manual steps.
+    """
+    chrome_profile = "/app/data/chrome-profile"
+    cookie_db = os.path.join(chrome_profile, "Default", "Cookies")
+    if not os.path.exists(cookie_db) or not COOKIES_FILE:
+        logger.info("Cookie refresh skipped: no Chrome profile or COOKIES_FILE not set")
+        return
+    try:
+        args = [
+            "yt-dlp",
+            "--cookies-from-browser", f"chrome:{chrome_profile}",
+            "--cookies", COOKIES_FILE,
+            "--skip-download",
+            "--quiet",
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        ]
+        result = subprocess.run(args, capture_output=True, text=True, timeout=30)
+        if result.returncode == 0:
+            logger.info(f"Refreshed cookies from Chrome profile ({chrome_profile})")
+        else:
+            logger.warning(f"Cookie refresh failed: {result.stderr[:200]}")
+    except Exception as e:
+        logger.warning(f"Cookie refresh error: {e}")
 
 
 def _start_size_watcher(job: Job, job_dir: str, total_bytes: int, stop_event: threading.Event):
@@ -80,6 +119,11 @@ def _estimate_total_bytes(source_url: str, ydl_opts: dict, clip_start, clip_end)
         "format": ydl_opts.get("format"),
         "skip_download": True,
         "js_runtimes": {"node": {}},
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["tv_embedded", "ios", "android", "web"],
+            },
+        },
     }
     if COOKIES_FILE and os.path.exists(COOKIES_FILE):
         with open(COOKIES_FILE) as _f:
@@ -143,8 +187,14 @@ def download_job_video(job: Job) -> str:
             "file_access_retries": 5,
             "extractor_retries": 3,
             "socket_timeout": 60,
-            "concurrent_fragment_downloads": 1,
+            "concurrent_fragment_downloads": CONCURRENT_FRAGMENTS,
+            "throttled_rate": THROTTLED_RATE,
             "js_runtimes": {"node": {}},
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["tv_embedded", "ios", "android", "web"],
+                },
+            },
             "retry_sleep_functions": {
                 "http": lambda n: min(2 ** n, 30),
                 "fragment": lambda n: min(2 ** n, 30),
@@ -157,6 +207,9 @@ def download_job_video(job: Job) -> str:
             if any(line.strip() and '\t' in line for line in content.splitlines()):
                 ydl_opts["cookiefile"] = COOKIES_FILE
                 logger.info(f"Using cookies file: {COOKIES_FILE}")
+        # Browser-derived cookies are extracted to COOKIES_FILE by manage.py auth.
+        # Direct cookiesfrombrowser is not used here because Chrome's persistent
+        # profile doesn't survive container restarts; the extracted flat file does.
 
         if job.clip_start is not None and job.clip_end is not None and job.clip_end > job.clip_start:
             logger.info(f"Downloading range [{job.clip_start}s – {job.clip_end}s]")
@@ -164,6 +217,24 @@ def download_job_video(job: Job) -> str:
                 {"start_time": job.clip_start, "end_time": job.clip_end}
             ]
             ydl_opts["force_keyframes_at_cuts"] = True
+
+        has_range = "download_ranges" in ydl_opts
+        if ARIA2C_ENABLED and shutil.which("aria2c") and not has_range:
+            ydl_opts["external_downloader"] = "aria2c"
+            ydl_opts["external_downloader_args"] = {
+                "default": [
+                    "-x", str(ARIA2C_CONNECTIONS),
+                    "-k", "1M",
+                    "--min-split-size", "1M",
+                    "--max-connection-per-server", str(ARIA2C_CONNECTIONS),
+                    "--retry-wait", "3",
+                    "--max-tries", "20",
+                    "--console-log-level", "error",
+                ]
+            }
+            logger.info(f"Using aria2c external downloader ({ARIA2C_CONNECTIONS} connections)")
+        elif has_range:
+            logger.info("aria2c disabled for range downloads — using yt-dlp built-in downloader")
 
         total_bytes = _estimate_total_bytes(job.source_url, ydl_opts, job.clip_start, job.clip_end)
         if total_bytes:
@@ -179,11 +250,30 @@ def download_job_video(job: Job) -> str:
             if os.path.exists(os.path.join(job_dir, ".cancelled")):
                 logger.info(f"Download aborted for cancelled job {job.id}")
                 raise RuntimeError("Job was cancelled")
+            err_msg = str(e)
+            # Retry once with fresh cookies if auth-related failure
+            if "Sign in" in err_msg:
+                logger.info("Auth failed — refreshing cookies and retrying once...")
+                _refresh_cookies()
+                if "cookiefile" not in ydl_opts and COOKIES_FILE:
+                    ydl_opts["cookiefile"] = COOKIES_FILE
+                try:
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        ydl.download([job.source_url])
+                    logger.info("Second attempt succeeded after cookie refresh")
+                    return _resolve_source_file(job_dir)
+                except Exception as e2:
+                    logger.error(f"Retry also failed: {e2}")
+                    raise RuntimeError(f"Video download failed: {str(e2)}")
             logger.error(f"yt-dlp failed: {e}")
-            raise RuntimeError(f"Video download failed: {str(e)}")
+            raise RuntimeError(f"Video download failed: {err_msg}")
         finally:
             stop_event.set()
 
+    return _resolve_source_file(job_dir)
+
+
+def _resolve_source_file(job_dir: str) -> str:
     files = glob.glob(os.path.join(job_dir, "source.*"))
     if not files:
         raise FileNotFoundError("Source video file not found in job directory.")

@@ -8,6 +8,29 @@ from app.models import Job, Clip, resolve_clip_duration
 
 logger = logging.getLogger("simbioclip.pipeline.moments")
 
+MAX_TRANSCRIPT_SEGMENTS = 300
+
+
+def _truncate_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Sample transcript down to MAX_TRANSCRIPT_SEGMENTS evenly across timeline.
+
+    Prevents the LLM prompt from blowing up on 2+ hour videos while still
+    giving it a representative view of the full transcript.
+    """
+    if len(segments) <= MAX_TRANSCRIPT_SEGMENTS:
+        return segments
+    step = len(segments) / MAX_TRANSCRIPT_SEGMENTS
+    result = []
+    for i in range(MAX_TRANSCRIPT_SEGMENTS):
+        idx = min(int(i * step), len(segments) - 1)
+        result.append(segments[idx])
+    logger.info(
+        "Truncated %d transcript segments to %d (sampled evenly)",
+        len(segments), len(result),
+    )
+    return result
+
+
 def format_segments_for_llm(segments: List[Dict[str, Any]]) -> str:
     """Formats raw transcript segments into timestamped lines."""
     formatted_lines = []
@@ -87,21 +110,13 @@ def _lang_instruction(lang: str | None) -> str:
     return "Write the titles, hooks, and reasons in the same language as the transcript."
 
 
-def _build_system_prompt(lang_instruction: str, lenient: bool = False,
+def _build_system_prompt(lang_instruction: str,
                          dur_min: int = 15, dur_max: int = 60) -> str:
-    """Build the moments system prompt.
-
-    `lenient=True` is used for a fallback pass when the strict pass returned no
-    clips — it relaxes the hook bar and the score threshold so ordinary (but
-    still watchable) conversational content isn't rejected wholesale.
-
-    `dur_min`/`dur_max` set the target clip-length window the user chose.
-    """
     span = dur_max - dur_min
     sweet_lo = round(dur_min + span * 0.25)
     sweet_hi = round(dur_min + span * 0.75)
     duration_rule = (
-        f"   - Target {dur_min}-{dur_max} seconds (sweet spot ~{sweet_lo}-{sweet_hi}s). "
+        f"   - Target {dur_min}-{dur_max}s (sweet spot ~{sweet_lo}-{sweet_hi}s). "
         f"Every clip MUST land within {dur_min}-{dur_max}s.\n"
         f"   - Extend or trim a candidate to the nearest segment boundaries to fit the window. "
         f"If a moment genuinely cannot fit {dur_min}-{dur_max}s while keeping its hook + payoff, drop it.\n\n"
@@ -123,182 +138,90 @@ def _build_system_prompt(lang_instruction: str, lenient: bool = False,
         "# WHAT MAKES A GOOD CLIP\n"
         "1) HOOK — the first few seconds earn attention. A hook can be a bold or contrarian claim, a curiosity "
         "gap, a funny or relatable line, an intriguing question, a surprising fact, an emotional beat, or a "
-        "strong opinion. It does NOT need to be a dramatic 'guru' statement — a genuinely interesting, funny, "
-        "or surprising opening counts. Just avoid opening on pure filler (\"so basically\", \"um, yeah\") when a "
+        "strong opinion. It does NOT need to be dramatic. A genuinely interesting, funny, "
+        "or surprising opening counts. Just avoid opening on pure filler when a "
         "stronger line is a segment or two away.\n"
         "2) PAYOFF — the clip resolves itself inside the window: a punchline lands, a point is made, a story "
-        "finishes, a question gets answered. Avoid \"I'll tell you in a sec\" with the answer outside the clip.\n"
+        "finishes, a question gets answered.\n"
         "3) STANDALONE — someone who watches ONLY this clip understands it without the rest of the video.\n\n"
 
-        "# BOUNDARIES\n"
-        "Prefer clips whose first line sets up context and whose last line delivers the payoff. If a candidate "
-        "starts mid-thought or ends on an unresolved setup, FIRST try moving the start/end to nearby segment "
-        "boundaries to fix it; only drop it if it still doesn't work. Always start and end exactly on transcript "
-        "segment boundaries — never split a sentence.\n\n"
-
-        "# AVOID (do not output these)\n"
-        "   - Pure intros/outros, ads, sponsor reads, \"subscribe and like\", greetings\n"
-        "   - Clips that only make sense with earlier context a viewer can't see\n"
-        "   - Generic filler with nothing interesting, funny, or informative\n\n"
-
-        "# DURATION\n"
-        + duration_rule +
+        "# SCORE RUBRIC (1-10) — be honest, don't inflate\n"
+        "   9-10  Outstanding. Specific + surprising + complete + clean boundaries.\n"
+        "   7-8   Strong. Clear hook, clear payoff, fully self-contained.\n"
+        "   5-6   Good. Solid and watchable. KEEP these.\n"
+        "   3-4   Weak but usable. Include these if the content is conversational "
+        "and you would otherwise return very few or no clips.\n"
+        "   1-2   Unusable: filler, ads, or incomprehensible out of context. Drop.\n\n"
 
         "# OUTPUT\n"
-        "Return ONLY a JSON array. NO markdown fence. NO preamble. NO trailing prose.\n"
-        "Sort by score descending. "
-        "Return [] ONLY if the transcript contains no usable spoken content at all (pure music, ads, or silence).\n\n"
+        "Return ONLY a JSON array sorted by score descending. "
+        "Return [] ONLY if the transcript is genuinely just ads, music, or silence.\n\n"
         "[\n"
         "  {\n"
-        "    \"start\": 12.34,                           // seconds, MUST equal a transcript segment start\n"
-        "    \"end\": 47.21,                             // seconds, MUST equal a transcript segment end\n"
-        "    \"score\": 8,                               // 1-10, see rubric\n"
-        "    \"hook_type\": \"contrarian|curiosity|story|claim|question|interrupt|funny|relatable\",\n"
+        "    \"start\": 12.34,\n"
+        "    \"end\": 47.21,\n"
+        "    \"score\": 8,\n"
         "    \"hook\": \"the spoken opening line, near-verbatim from transcript, ≤100 chars\",\n"
-        "    \"title\": \"scroll-stopping upload title, ≤70 chars (BEST option)\",\n"
-        "    \"title_alternatives\": [\"alt 1\", \"alt 2\"],  // OPTIONAL 0-2 additional title variants for A/B testing\n"
+        "    \"title\": \"scroll-stopping upload title, ≤70 chars\",\n"
         "    \"reason\": \"1 sentence: what makes this clip work (be specific)\",\n"
-        "    \"standalone_check\": \"1 sentence proving the first line sets context AND the last line delivers payoff\",\n"
-        "    \"emphasis\": [{\"t\": 13.5, \"emoji\": \"🤯\"}],   // OPTIONAL 0-3 emoji at moments of surprise/punchline (timestamp in seconds, within [start, end])\n"
         "  }\n"
         "]\n\n"
-        "EMPHASIS RULES (only if you add them):\n"
-        "   - 0-3 emoji per clip — fewer is better. ONLY at genuine surprise / punchline / number-drop moments.\n"
-        "   - Allowed emoji: 🤯 😂 🔥 💀 👀 💡 ⚡ 🎯 📈 (pick the most fitting)\n"
-        "   - Each emphasis.t MUST be inside [start, end] and aligned with a transcript word\n"
-        "   - NO emoji for generic statements\n\n"
-        "TITLE ALTERNATIVES (only if you add them):\n"
-        "   - Each alternative must be a DIFFERENT angle (e.g., shocking number, contrarian, story, direct question)\n"
-        "   - All must accurately reflect the clip — no clickbait that the content doesn't deliver\n\n"
 
-        "# SCORE RUBRIC (1-10) — be honest, don't inflate\n"
-        "   9-10  Outstanding. Specific + surprising + complete + clean boundaries. Could be a top-comment quote.\n"
-        "   7-8   Strong. Clear hook, clear payoff, fully self-contained.\n"
-        "   5-6   Good. Solid and watchable, self-contained even if the hook is mild or the payoff is soft. KEEP these.\n"
-        "   3-4   Weak but usable as a last resort.\n"
-        "   1-2   Unusable: filler, ads, or incomprehensible out of context. Drop.\n"
-        + (
-            "Include every moment scoring 3+. This is a fallback pass: a stricter pass found nothing, so be "
-            "permissive and surface the most interesting / funny / informative moments you can.\n\n"
-            if lenient else
-            "Include every moment scoring 5+. Only dip down to 3-4 if you would otherwise have very few clips.\n\n"
-        )
-
-        + f"# LANGUAGE\n{lang_instruction}\n"
-        "Hook and title must read naturally in that language — do not translate awkwardly. "
-        "If the transcript language differs from the requested output language, still write hook/title/reason/standalone_check in the requested language."
+        f"# LANGUAGE\n{lang_instruction}\n"
+        "Hook and title must read naturally in that language."
     )
 
 
-def _build_user_prompt(formatted_transcript: str, lenient: bool = False,
+def _build_user_prompt(formatted_transcript: str,
                        dur_min: int = 15, dur_max: int = 60) -> str:
-    if lenient:
-        intro = (
-            "A first, stricter pass found NO clips. This is real spoken content, so usable moments DO exist. "
-            f"Be more permissive now: pick the 3-5 most interesting, funny, surprising, or informative segments "
-            f"that work as standalone clips of {dur_min}-{dur_max}s. A clear, engaging, self-contained moment is "
-            "enough — the hook does not have to be extraordinary. Only return [] if the transcript is genuinely "
-            "just ads, music, or silence.\n\n"
-        )
-    else:
-        intro = (
-            "Analyze the transcript below.\n\n"
-            "Before writing the JSON, silently do this:\n"
-            "  1. Scan for candidate moments (engaging, funny, surprising, or informative openings).\n"
-            "  2. For each candidate, find the earliest segment boundary where the hook starts "
-            "and the latest segment boundary where the payoff lands.\n"
-            f"  3. Make sure the span fits {dur_min}-{dur_max}s; adjust to nearby boundaries to fit. "
-            "Prefer candidates that read as standalone.\n"
-            "  4. Score what you find. Keep everything 5+; dip to 3-4 only if you'd otherwise have very few clips.\n\n"
-        )
     return (
-        intro
-        + "Then output the JSON array ONLY — no explanation, no markdown fence.\n\n"
+        "Analyze the transcript below.\n\n"
+        "Scan for candidate moments (engaging, funny, surprising, or informative openings). "
+        f"Make sure each clip fits {dur_min}-{dur_max}s. "
+        "Score everything 5+; dip to 3-4 for conversational content if you'd otherwise return few or no clips.\n\n"
+        "Return ONLY the JSON array — no explanation, no markdown fence.\n\n"
         "--- TRANSCRIPT ---\n"
         f"{formatted_transcript}"
     )
 
 
-def _request_and_parse(job: Job, messages: List[Dict[str, str]], tag: str) -> List[Dict[str, Any]]:
-    """Call the LLM, persist the raw reply, and parse it into a list of moments.
-
-    On a JSON parse failure, retries once with a strict JSON-only follow-up.
-    `tag` distinguishes the persisted artifact files (e.g. "" or "_lenient").
-    """
+def _request_and_parse(job: Job, messages: List[Dict[str, str]]) -> List[Dict[str, Any]]:
     raw_response = llm_client.get_completion(messages=messages, temperature=0.3)
     try:
-        with open(os.path.join(job.get_dir(), f"moments_raw_response{tag}.txt"), "w", encoding="utf-8") as f:
+        with open(os.path.join(job.get_dir(), "moments_raw_response.txt"), "w", encoding="utf-8") as f:
             f.write(raw_response)
     except Exception as ex:
         logger.warning(f"Could not persist raw moments response: {ex}")
 
-    logger.info(f"Received moments response{tag or ' (strict)'}. Parsing...")
     try:
         return parse_llm_json_response(raw_response)
-    except ValueError as first_err:
-        logger.warning(f"First parse failed ({first_err}); retrying with strict JSON-only prompt")
-        retry_messages = messages + [
-            {"role": "assistant", "content": raw_response},
-            {
-                "role": "user",
-                "content": (
-                    "Your previous reply could not be parsed as JSON. "
-                    "Respond again with ONLY the JSON array. "
-                    "No <thinking> tags, no commentary, no markdown fences."
-                ),
-            },
-        ]
-        raw_response = llm_client.get_completion(messages=retry_messages, temperature=0.1)
-        try:
-            with open(os.path.join(job.get_dir(), f"moments_raw_response{tag}_retry.txt"), "w", encoding="utf-8") as f:
-                f.write(raw_response)
-        except Exception:
-            pass
-        return parse_llm_json_response(raw_response)
+    except ValueError as e:
+        logger.warning(f"Failed to parse LLM response (falling back to empty moments): {e}")
+        return []
 
 
 def detect_moments(job: Job, segments: List[Dict[str, Any]]) -> List[Clip]:
-    """
-    Queries LLM with the formatted transcript, parses the moments,
-    filters/validates them, and returns a list of Clip models.
-
-    Runs a strict pass first; if it yields no clips, retries once with a more
-    lenient prompt so ordinary conversational content (podcasts, casual chats)
-    doesn't fail the whole pipeline with "no engaging moments".
-    """
     if not segments:
         logger.warning("No transcript segments provided. Cannot detect moments.")
         return []
 
+    segments = _truncate_segments(segments)
     formatted_transcript = format_segments_for_llm(segments)
     lang_instruction = _lang_instruction(job.lang)
     dur_min, dur_max = resolve_clip_duration(getattr(job, "clip_duration", "auto"))
     logger.info(f"Target clip duration: {dur_min}-{dur_max}s (preset={getattr(job, 'clip_duration', 'auto')})")
 
-    logger.info("Sending transcript to LLM client (strict pass)...")
+    logger.info("Sending transcript to LLM for moment detection...")
     messages = [
-        {"role": "system", "content": _build_system_prompt(lang_instruction, lenient=False, dur_min=dur_min, dur_max=dur_max)},
-        {"role": "user", "content": _build_user_prompt(formatted_transcript, lenient=False, dur_min=dur_min, dur_max=dur_max)},
+        {"role": "system", "content": _build_system_prompt(lang_instruction, dur_min=dur_min, dur_max=dur_max)},
+        {"role": "user", "content": _build_user_prompt(formatted_transcript, dur_min=dur_min, dur_max=dur_max)},
     ]
-    parsed_moments = _request_and_parse(job, messages, tag="")
-
+    parsed_moments = _request_and_parse(job, messages)
     clips = _items_to_clips(parsed_moments)
 
-    if not clips:
-        logger.warning("Strict pass found 0 clips; retrying with lenient prompt.")
-        lenient_messages = [
-            {"role": "system", "content": _build_system_prompt(lang_instruction, lenient=True, dur_min=dur_min, dur_max=dur_max)},
-            {"role": "user", "content": _build_user_prompt(formatted_transcript, lenient=True, dur_min=dur_min, dur_max=dur_max)},
-        ]
-        parsed_moments = _request_and_parse(job, lenient_messages, tag="_lenient")
-        clips = _items_to_clips(parsed_moments)
-
-    # Sort clips by score descending
     clips.sort(key=lambda c: c.score, reverse=True)
-
-    # Limit to max_clips
     selected_clips = clips[:job.max_clips]
-    logger.info(f"Successfully detected & validated {len(selected_clips)} moments (capped at max {job.max_clips})")
+    logger.info(f"Detected {len(selected_clips)} moments (capped at max {job.max_clips})")
 
     return selected_clips
 

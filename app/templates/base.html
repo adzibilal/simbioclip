@@ -194,35 +194,51 @@
         /* Clips grid + cards */
         .clips-head { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.8px;
             color: var(--steel); margin: 22px 0 14px; display: flex; align-items: center; gap: 7px; }
-        .clips-grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(186px, 1fr)); }
+        .clips-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, 1fr); }
         .clip-card { background: var(--canvas); border: 1px solid var(--hairline); border-radius: 12px; overflow: hidden;
-            display: flex; flex-direction: column; transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease; }
-        .clip-card:hover { box-shadow: var(--shadow-3); transform: translateY(-3px); border-color: var(--hairline-strong); }
-        .clip-video-wrap { position: relative; aspect-ratio: 9 / 16; background: var(--canvas-dark); cursor: pointer; }
+            display: flex; flex-direction: row; transition: box-shadow .18s ease, transform .18s ease, border-color .18s ease;
+            min-height: 0; }
+        .clip-card:hover { box-shadow: var(--shadow-3); transform: translateY(-2px); border-color: var(--hairline-strong); }
+        .clip-video-wrap { position: relative; width: 155px; flex-shrink: 0; aspect-ratio: 9 / 16;
+            background: var(--canvas-dark); cursor: pointer; }
         .clip-video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
-        .clip-overlay-badge { position: absolute; top: 8px; left: 8px; display: inline-flex; align-items: center; gap: 4px;
-            background: rgba(0,30,43,0.78); color: var(--brand-green); font-size: 11px; font-weight: 700; padding: 4px 8px;
-            border-radius: 9999px; backdrop-filter: blur(4px); pointer-events: none; }
-        .clip-duration-badge { position: absolute; bottom: 8px; right: 8px; background: rgba(0,30,43,0.78); color: var(--on-dark);
-            font-size: 11px; font-weight: 600; padding: 3px 8px; border-radius: 9999px; backdrop-filter: blur(4px); pointer-events: none; }
-        .clip-expand { position: absolute; top: 8px; right: 8px; width: 30px; height: 30px; border-radius: 8px; border: none;
-            cursor: pointer; background: rgba(0,30,43,0.72); color: var(--on-dark); display: flex; align-items: center;
-            justify-content: center; backdrop-filter: blur(4px); transition: background .15s ease; }
-        .clip-expand:hover { background: var(--brand-green); color: var(--on-primary); }
         .clip-play { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
-        .clip-play span { width: 46px; height: 46px; border-radius: 50%; background: rgba(0,237,100,0.92); color: #00231A;
-            display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 14px rgba(0,30,43,0.4); }
-        .clip-body { padding: 13px; display: flex; flex-direction: column; gap: 9px; flex: 1; }
-        .clip-title { font-size: 14px; font-weight: 600; line-height: 1.3; color: var(--ink); }
-        .clip-hook { background: var(--surface-feature); color: var(--brand-green-dark); font-size: 12px; font-weight: 600;
-            line-height: 1.35; padding: 7px 10px; border-radius: 8px; display: flex; gap: 6px; align-items: flex-start; }
-        .clip-reason { font-size: 12px; color: var(--steel); line-height: 1.45; }
-        .clip-foot { margin-top: auto; display: flex; gap: 8px; }
-        .btn-download { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px;
+        .clip-play span { width: 38px; height: 38px; border-radius: 50%; background: rgba(0,237,100,0.92); color: #00231A;
+            display: flex; align-items: center; justify-content: center; box-shadow: 0 3px 12px rgba(0,30,43,0.4); }
+        .clip-body { padding: 12px 14px; display: flex; flex-direction: column; gap: 7px; flex: 1; min-width: 0; }
+        .clip-title { font-size: 13px; font-weight: 600; line-height: 1.3; color: var(--ink); }
+        .clip-hook { background: var(--surface-feature); color: var(--brand-green-dark); font-size: 11px; font-weight: 600;
+            line-height: 1.35; padding: 6px 9px; border-radius: 7px; display: flex; gap: 5px; align-items: flex-start; }
+        .clip-reason { font-size: 11px; color: var(--steel); line-height: 1.4; }
+        .clip-meta { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+        .cm-badge { display: inline-flex; align-items: center; font-size: 10px; font-weight: 700; padding: 2px 7px;
+            border-radius: 9999px; line-height: 1.3; }
+        .cm-score { background: var(--surface-feature); color: var(--brand-green-dark); }
+        .cm-duration { background: var(--surface-soft); color: var(--slate); }
+        .cm-layout { background: #F0F5FF; color: #1A56DB; }
+        .cm-speaker { background: #F3E8FF; color: #7C3AED; }
+        .clip-options { display: flex; gap: 5px; flex-wrap: wrap; }
+        .clip-opt-select { font-size: 10px; padding: 3px 5px; border-radius: 5px; border: 1px solid var(--hairline);
+            background: var(--canvas); color: var(--slate); flex: 1; min-width: 0; cursor: pointer; }
+        .clip-opt-select:hover { border-color: var(--steel); }
+        .clip-opt-select:disabled { opacity: 0.6; cursor: wait; }
+        .clip-foot { margin-top: auto; display: flex; gap: 6px; padding-top: 2px; }
+        .btn-download { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 5px; font-size: 12px;
             font-weight: 600; color: var(--on-primary); background: var(--brand-green); border: none; border-radius: 9999px;
-            padding: 9px 12px; cursor: pointer; transition: background .15s ease; }
+            padding: 7px 10px; cursor: pointer; transition: background .15s ease; }
         .btn-download:hover { background: #00D659; }
-        .clip-rendering { font-size: 12px; color: var(--stone); font-style: italic; padding: 9px 0; }
+        .btn-download svg, .clip-foot .btn-secondary svg { width: 13px; height: 13px; }
+        .clip-rendering { font-size: 11px; color: var(--stone); font-style: italic; padding: 7px 0; }
+
+        @media (max-width: 860px) {
+            .clips-grid { grid-template-columns: repeat(2, 1fr); gap: 12px; }
+            .clip-video-wrap { width: 130px; }
+            .clip-body { padding: 10px 12px; gap: 6px; }
+        }
+        @media (max-width: 600px) {
+            .clips-grid { grid-template-columns: 1fr; }
+            .clip-video-wrap { width: 120px; }
+        }
 
         /* States */
         .empty-state { text-align: center; padding: 56px 24px; color: var(--slate); }
@@ -248,13 +264,7 @@
         .sp-badge { display: inline-flex; align-items: center; font-size: 10px; font-weight: 700; text-transform: uppercase;
             letter-spacing: 0.5px; padding: 3px 9px; border-radius: 9999px; background: #FFF3DA; color: #8A5A00; }
 
-        /* Layout badges on clip cards */
-        .clip-layout-badge { position: absolute; bottom: 8px; left: 8px; background: rgba(0,30,43,0.78);
-            color: rgba(255,255,255,0.92); font-size: 9px; font-weight: 700; padding: 3px 7px; border-radius: 6px;
-            backdrop-filter: blur(4px); pointer-events: none; text-transform: uppercase; letter-spacing: 0.3px; }
-        .clip-speaker-badge { position: absolute; top: 8px; right: 44px; background: rgba(0,30,43,0.78);
-            color: #FFD700; font-size: 9px; font-weight: 700; padding: 3px 7px; border-radius: 6px;
-            backdrop-filter: blur(4px); pointer-events: none; }
+
         .spinner { width: 16px; height: 16px; border: 2px solid var(--hairline); border-top-color: var(--brand-green-mid);
             border-radius: 50%; animation: spin .7s linear infinite; flex-shrink: 0; }
 
@@ -344,32 +354,59 @@
         </div>
     </div>
 
-    <!-- Cookies update FAB -->
-    <button id="cookies-fab" onclick="openCookiesModal()" title="Update YouTube cookies" aria-label="Update cookies">
+    <!-- YouTube auth FAB -->
+    <button id="cookies-fab" onclick="openCookiesModal()" title="YouTube authentication" aria-label="YouTube auth">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 2a10 10 0 0 1 7.38 16.75A10 10 0 0 1 9.5 21.5 7 7 0 0 1 4 16.25 10 10 0 0 1 12 2z"/>
             <circle cx="9" cy="10" r="1.5" fill="currentColor" stroke="none"/>
             <circle cx="15" cy="10" r="1.5" fill="currentColor" stroke="none"/>
             <circle cx="12" cy="15" r="1.5" fill="currentColor" stroke="none"/>
         </svg>
-        <span class="fab-label">Cookies</span>
+        <span class="fab-label" id="fab-label">YouTube</span>
     </button>
 
-    <!-- Cookies modal -->
+    <!-- YouTube Auth Modal -->
     <div class="modal" id="cookies-modal" onclick="if(event.target===this) closeCookiesModal()">
-        <div class="modal-card" style="max-width: 640px;">
+        <div class="modal-card" style="max-width: 500px;">
             <div class="modal-head">
                 <div>
-                    <h2>YouTube Cookies</h2>
-                    <p>Paste Netscape-format cookies exported from your browser.</p>
+                    <h2>YouTube Authentication</h2>
+                    <p id="yt-status-text">Checking connection…</p>
                 </div>
                 <button class="modal-close" onclick="closeCookiesModal()">×</button>
             </div>
-            <textarea id="cookies-textarea" style="width:100%; height:320px; font-family:var(--font-mono); font-size:12px; padding:12px; border:1px solid var(--hairline-strong); border-radius:10px; resize:vertical; outline:none; background:var(--surface); color:var(--ink);" placeholder="Paste cookies here..."></textarea>
-            <div style="display:flex; gap:10px; margin-top:14px; justify-content:flex-end;">
-                <button class="btn-secondary" onclick="closeCookiesModal()">Cancel</button>
-                <button class="btn-primary" onclick="saveCookies()" id="cookies-save-btn">Save cookies</button>
+
+            <div style="text-align:center; padding:8px 0;">
+                <div id="yt-connected-view" style="display:none;">
+                    <div style="font-size:44px; color:var(--brand-green-dark);">✓</div>
+                    <div style="font-weight:600; font-size:16px; margin:6px 0;">Connected</div>
+                    <div style="font-size:12px; color:var(--steel); margin-bottom:16px;" id="yt-cookie-info"></div>
+                    <button class="btn-secondary" onclick="refreshCookies()" id="yt-refresh-btn">Refresh from browser</button>
+                </div>
+
+                <div id="yt-disconnected-view" style="display:none;">
+                    <div style="font-size:44px; color:var(--steel);">✕</div>
+                    <div style="font-weight:600; font-size:16px; margin:6px 0;">Not connected</div>
+                    <div style="font-size:12px; color:var(--steel); margin-bottom:16px;">
+                        Paste cookies below or refresh if you've logged into Chrome on this server.
+                    </div>
+                    <button class="btn-secondary" onclick="refreshCookies()" id="yt-refresh-btn">Try Chrome cookies</button>
+                </div>
+
+                <div id="yt-loading-view">
+                    <span class="spinner"></span> <span style="font-size:13px; color:var(--steel);">Checking…</span>
+                </div>
             </div>
+
+            <details style="margin-top:8px;">
+                <summary style="cursor:pointer; font-size:12px; color:var(--steel); font-weight:600; text-align:center;">
+                    Cookie editor
+                </summary>
+                <textarea id="cookies-textarea" style="width:100%; height:200px; font-family:var(--font-mono); font-size:11px; padding:10px; border:1px solid var(--hairline-strong); border-radius:8px; resize:vertical; outline:none; background:var(--surface); color:var(--ink); margin-top:8px;" placeholder="Paste Netscape-format cookies here..."></textarea>
+                <div style="display:flex; gap:10px; margin-top:10px; justify-content:flex-end;">
+                    <button class="btn-primary" onclick="saveCookies()" id="cookies-save-btn">Save cookies</button>
+                </div>
+            </details>
         </div>
     </div>
 
@@ -408,19 +445,68 @@
         }
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeClipModal(); });
 
+        /* ── YouTube Auth ──────────────────────────────── */
+
         function openCookiesModal() {
             document.getElementById('cookies-modal').classList.add('open');
-            const btn = document.getElementById('cookies-save-btn');
-            btn.disabled = true; btn.textContent = 'Loading…';
-            fetch('/api/cookies', { headers: { 'Authorization': 'Bearer ' + '{{ api_token }}' } })
+            document.getElementById('cookies-textarea').value = '';
+            document.getElementById('yt-loading-view').style.display = 'block';
+            document.getElementById('yt-connected-view').style.display = 'none';
+            document.getElementById('yt-disconnected-view').style.display = 'none';
+            document.getElementById('yt-status-text').textContent = 'Checking connection…';
+            checkYtStatus();
+        }
+
+        function checkYtStatus() {
+            fetch('/api/auth/youtube', {
+                headers: { 'Authorization': 'Bearer ' + '{{ api_token }}' }
+            })
                 .then(r => r.json())
                 .then(d => {
-                    document.getElementById('cookies-textarea').value = d.cookies || '';
-                    btn.disabled = false; btn.textContent = 'Save cookies';
+                    const label = document.getElementById('fab-label');
+                    const cookiesText = document.getElementById('cookies-textarea');
+                    document.getElementById('yt-loading-view').style.display = 'none';
+                    if (d.connected) {
+                        label.textContent = '✓ YouTube';
+                        document.getElementById('yt-status-text').textContent = 'Connected';
+                        document.getElementById('yt-connected-view').style.display = 'block';
+                        document.getElementById('yt-disconnected-view').style.display = 'none';
+                    } else {
+                        label.textContent = 'YouTube';
+                        document.getElementById('yt-status-text').textContent = 'Not connected';
+                        document.getElementById('yt-connected-view').style.display = 'none';
+                        document.getElementById('yt-disconnected-view').style.display = 'block';
+                    }
                 })
                 .catch(() => {
-                    document.getElementById('cookies-textarea').value = '';
-                    btn.disabled = false; btn.textContent = 'Save cookies';
+                    document.getElementById('yt-loading-view').style.display = 'none';
+                    document.getElementById('yt-disconnected-view').style.display = 'block';
+                });
+        }
+
+        function refreshCookies() {
+            const btn = document.getElementById('yt-refresh-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> Refreshing…';
+            fetch('/api/auth/youtube/refresh', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + '{{ api_token }}' }
+            })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.ok) {
+                        showToast('Cookies refreshed from Chrome (' + d.lines + ' lines)');
+                        checkYtStatus();
+                    } else {
+                        showToast('Could not refresh: ' + (d.detail || 'unknown error'));
+                        btn.disabled = false;
+                        btn.textContent = 'Try Chrome cookies';
+                    }
+                })
+                .catch(e => {
+                    showToast('Refresh failed');
+                    btn.disabled = false;
+                    btn.textContent = 'Try Chrome cookies';
                 });
         }
         function closeCookiesModal() {

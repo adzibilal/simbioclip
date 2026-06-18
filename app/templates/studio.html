@@ -1,0 +1,719 @@
+{% extends "base.html" %}
+{% block title %}SimbioClip — Studio {{ job.id[:8] }}{% endblock %}
+
+{% block head_extra %}
+<style>
+    .studio-wrap { max-width: 1260px; margin: 0 auto; padding: 28px; }
+    .studio-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+    .studio-header h1 { font-size: 20px; font-weight: 600; }
+    .studio-header .back-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600;
+        color: var(--slate); padding: 7px 14px; border-radius: 9999px; border: 1px solid var(--hairline);
+        background: var(--canvas); transition: all .15s ease; }
+    .studio-header .back-link:hover { background: var(--surface-soft); border-color: var(--steel); }
+
+    .studio-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--hairline); margin-bottom: 20px; }
+    .studio-tab { padding: 10px 18px; font-size: 13px; font-weight: 600; color: var(--stone); border: none;
+        background: transparent; cursor: pointer; border-bottom: 2px solid transparent; font-family: var(--font-sans);
+        transition: all .15s ease; }
+    .studio-tab:hover { color: var(--ink); }
+    .studio-tab.active { color: var(--brand-green-dark); border-bottom-color: var(--brand-green); }
+
+    .studio-panel { display: none; }
+    .studio-panel.active { display: block; }
+
+    /* Clip selector */
+    .clip-selector { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .clip-chip { padding: 6px 14px; border-radius: 9999px; border: 1px solid var(--hairline); background: var(--canvas);
+        font-size: 12px; font-weight: 600; color: var(--slate); cursor: pointer; transition: all .15s ease; }
+    .clip-chip:hover { border-color: var(--steel); }
+    .clip-chip.active { background: var(--brand-green); color: var(--on-primary); border-color: var(--brand-green); }
+
+    /* Crop editor */
+    .crop-container { display: flex; gap: 20px; flex-wrap: wrap; }
+    .crop-viewport { position: relative; flex: 0 0 auto; background: #000; border-radius: 12px; overflow: hidden;
+        border: 1px solid var(--hairline); width: 480px; height: 640px; cursor: grab; user-select: none; }
+    .crop-viewport:active { cursor: grabbing; }
+    .crop-viewport img { width: 100%; height: 100%; object-fit: contain; display: block; pointer-events: none; }
+    .crop-overlay { position: absolute; inset: 0; pointer-events: none; }
+    .crop-rect { position: absolute; border: 2px solid var(--brand-green); box-shadow: 0 0 0 9999px rgba(0,0,0,0.55);
+        pointer-events: none; transition: none; }
+    .crop-rect::before, .crop-rect::after { content: ''; position: absolute; width: 10px; height: 10px;
+        border: 2px solid var(--brand-green); background: var(--canvas); border-radius: 2px; }
+    .crop-rect::before { top: -6px; left: -6px; }
+    .crop-rect::after { bottom: -6px; right: -6px; }
+
+    .crop-controls { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 14px; }
+    .crop-controls label { font-size: 12px; font-weight: 600; color: var(--steel); display: flex; justify-content: space-between; }
+    .crop-controls input[type="range"] { width: 100%; accent-color: var(--brand-green-mid); }
+    .crop-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .crop-info { font-size: 12px; color: var(--stone); background: var(--surface-soft); padding: 8px 12px;
+        border-radius: 8px; line-height: 1.5; }
+    .crop-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 40px; color: var(--stone); }
+
+    /* Subtitle editor */
+    .subtitle-container { display: flex; gap: 20px; flex-wrap: wrap; }
+    .subtitle-list { flex: 1; min-width: 300px; display: flex; flex-direction: column; gap: 6px; max-height: 560px; overflow-y: auto; }
+    .subtitle-row { display: flex; align-items: flex-start; gap: 8px; padding: 8px 10px; border-radius: 8px;
+        border: 1px solid var(--hairline); background: var(--canvas); }
+    .subtitle-row .time { font-size: 11px; font-weight: 600; color: var(--stone); font-family: var(--font-mono);
+        white-space: nowrap; min-width: 80px; padding-top: 3px; }
+    .subtitle-row .text { flex: 1; font-size: 13px; color: var(--ink); line-height: 1.4; min-width: 0;
+        word-break: break-word; }
+    .subtitle-row .text textarea { width: 100%; font-size: 13px; padding: 4px 6px; border-radius: 6px;
+        border: 1px solid var(--brand-green-mid); background: var(--canvas); color: var(--ink);
+        font-family: var(--font-sans); resize: vertical; min-height: 32px; }
+    .subtitle-row .actions { display: flex; gap: 4px; flex-shrink: 0; }
+    .subtitle-row .btn-icon { width: 26px; height: 26px; border-radius: 6px; border: none; cursor: pointer;
+        background: transparent; color: var(--stone); display: flex; align-items: center; justify-content: center;
+        transition: all .15s ease; }
+    .subtitle-row .btn-icon:hover { background: var(--surface-soft); color: var(--ink); }
+    .subtitle-row.edited { border-color: var(--brand-green-mid); background: var(--surface-feature); }
+    .subtitle-row.edited .time { color: var(--brand-green-dark); }
+    .subtitle-style-controls { display: flex; gap: 10px; flex-wrap: wrap; padding: 12px; border-radius: 8px;
+        border: 1px solid var(--hairline); margin-bottom: 12px; }
+    .subtitle-style-controls .sg { display: flex; flex-direction: column; gap: 4px; }
+    .subtitle-style-controls .sg label { font-size: 10px; font-weight: 600; color: var(--stone); text-transform: uppercase; }
+    .subtitle-style-controls select, .subtitle-style-controls input { font-size: 12px; padding: 4px 8px;
+        border-radius: 6px; border: 1px solid var(--hairline); background: var(--canvas); color: var(--slate); }
+
+    /* Composition editor */
+    .comp-clips { display: flex; gap: 10px; flex-wrap: wrap; min-height: 100px; padding: 14px;
+        border: 2px dashed var(--hairline-strong); border-radius: 12px; margin-bottom: 14px; }
+    .comp-clip-item { width: 160px; background: var(--canvas); border: 1px solid var(--hairline);
+        border-radius: 10px; overflow: hidden; cursor: grab; }
+    .comp-clip-item:active { cursor: grabbing; }
+    .comp-clip-item .thumb { width: 100%; aspect-ratio: 9/16; background: var(--surface-feature);
+        display: flex; align-items: center; justify-content: center; overflow: hidden; }
+    .comp-clip-item .thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .comp-clip-item .info { padding: 8px 10px; }
+    .comp-clip-item .info .ctitle { font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; }
+    .comp-clip-item .info .ctrim { font-size: 10px; color: var(--stone); display: flex; gap: 4px; margin-top: 4px; }
+    .comp-clip-item .info .ctrim input { width: 50px; font-size: 10px; padding: 2px 4px; border-radius: 4px;
+        border: 1px solid var(--hairline); background: var(--canvas); color: var(--slate); text-align: center; }
+
+    .comp-settings { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+    .comp-settings label { font-size: 12px; font-weight: 600; color: var(--steel); }
+    .comp-settings select, .comp-settings input { font-size: 12px; padding: 5px 10px; border-radius: 8px;
+        border: 1px solid var(--hairline); background: var(--canvas); color: var(--slate); }
+
+    .missing-clips-note { text-align: center; padding: 40px 20px; color: var(--stone); }
+
+    @media (max-width: 860px) {
+        .crop-viewport { width: 100%; height: auto; aspect-ratio: 3/4; }
+        .subtitle-container { flex-direction: column; }
+        .studio-wrap { padding: 16px; }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="studio-wrap">
+    <div class="studio-header">
+        <div>
+            <a class="back-link" href="/job/{{ job.id }}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                Back to job
+            </a>
+            <h1 style="margin-top:10px;">Clip Studio</h1>
+        </div>
+        <code style="font-size:11px; color:var(--stone);">{{ job.id[:8] }}</code>
+    </div>
+
+    <div class="studio-tabs">
+        <button class="studio-tab active" onclick="switchTab('crop')" id="tab-crop">Crop</button>
+        <button class="studio-tab" onclick="switchTab('subtitle')" id="tab-subtitle">Subtitle</button>
+        <button class="studio-tab" onclick="switchTab('compose')" id="tab-compose">Compose</button>
+    </div>
+
+    <!-- ===== CROP TAB ===== -->
+    <div class="studio-panel active" id="panel-crop">
+        {% set rendered_clips = job.clips|selectattr('download_url')|list %}
+        {% if not rendered_clips %}
+        <div class="missing-clips-note">No rendered clips yet. Wait for the pipeline to finish rendering.</div>
+        {% else %}
+        <div class="clip-selector" id="crop-clip-selector">
+            {% for clip in rendered_clips %}
+            <button class="clip-chip {% if loop.first %}active{% endif %}"
+                    data-clip-id="{{ clip.id }}"
+                    onclick="selectCropClip('{{ clip.id }}')">{{ clip.title[:30] }}</button>
+            {% endfor %}
+        </div>
+        <div class="crop-container">
+            <div class="crop-viewport" id="crop-viewport">
+                <div class="crop-loading" id="crop-loading"><span class="spinner"></span> Loading frame…</div>
+                <img id="crop-frame-img" style="display:none;" alt="Crop frame">
+                <div class="crop-overlay" id="crop-overlay">
+                    <div class="crop-rect" id="crop-rect"></div>
+                </div>
+            </div>
+            <div class="crop-controls">
+                <div class="crop-info" id="crop-info">Select a clip above to adjust framing.</div>
+                <div>
+                    <label>Pan X <span id="pan-x-val">0</span></label>
+                    <input type="range" id="pan-x" min="-200" max="200" value="0" oninput="onCropSlider()">
+                </div>
+                <div>
+                    <label>Pan Y <span id="pan-y-val">0</span></label>
+                    <input type="range" id="pan-y" min="-200" max="200" value="0" oninput="onCropSlider()">
+                </div>
+                <div>
+                    <label>Zoom <span id="zoom-val">1.0</span></label>
+                    <input type="range" id="zoom" min="50" max="200" value="100" oninput="onCropSlider()">
+                </div>
+                <div class="crop-actions">
+                    <button class="btn-primary" id="crop-apply-btn" disabled onclick="applyCrop()">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                        Apply & Re-render
+                    </button>
+                    <button class="btn-secondary" onclick="resetCrop()">Reset</button>
+                </div>
+                <div id="crop-status" style="font-size:12px;color:var(--stone);"></div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ===== SUBTITLE TAB ===== -->
+    <div class="studio-panel" id="panel-subtitle">
+        {% if not rendered_clips %}
+        <div class="missing-clips-note">No rendered clips yet.</div>
+        {% else %}
+        <div class="clip-selector" id="sub-clip-selector">
+            {% for clip in rendered_clips %}
+            <button class="clip-chip {% if loop.first %}active{% endif %}"
+                    data-clip-id="{{ clip.id }}"
+                    onclick="selectSubClip('{{ clip.id }}')">{{ clip.title[:30] }}</button>
+            {% endfor %}
+        </div>
+        <div class="subtitle-style-controls" id="sub-style-controls" style="display:none;">
+            <div class="sg">
+                <label>Font size</label>
+                <select id="sub-font-size">
+                    <option value="80">80%</option>
+                    <option value="100" selected>100%</option>
+                    <option value="120">120%</option>
+                    <option value="150">150%</option>
+                </select>
+            </div>
+            <div class="sg">
+                <label>Position</label>
+                <select id="sub-position">
+                    <option value="top">Top</option>
+                    <option value="center">Center</option>
+                    <option value="bottom" selected>Bottom</option>
+                </select>
+            </div>
+            <div class="sg" style="margin-left:auto;">
+                <button class="btn-primary" style="font-size:12px;padding:6px 14px;" onclick="saveSubtitleEdits()">
+                    Save & Re-render
+                </button>
+            </div>
+        </div>
+        <div class="subtitle-container">
+            <div class="subtitle-list" id="subtitle-list">
+                <div style="text-align:center;padding:40px;color:var(--stone);">Select a clip to view subtitles.</div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- ===== COMPOSE TAB ===== -->
+    <div class="studio-panel" id="panel-compose">
+        {% if not rendered_clips %}
+        <div class="missing-clips-note">No rendered clips yet.</div>
+        {% else %}
+        <div class="comp-settings">
+            <label>Transition</label>
+            <select id="comp-transition" onchange="onCompChange()">
+                <option value="cut">Cut</option>
+                <option value="crossfade">Crossfade</option>
+            </select>
+            <label>Duration</label>
+            <input type="number" id="comp-transition-dur" value="0.5" min="0.1" max="2" step="0.1" onchange="onCompChange()" style="width:60px;">
+            <label>Title</label>
+            <input type="text" id="comp-title" value="Compilation" onchange="onCompChange()" style="width:140px;">
+            <button class="btn-primary" onclick="renderComposition()" style="margin-left:auto;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                Render
+            </button>
+        </div>
+        <div class="comp-clips" id="comp-clips" sortable="true">
+            {% for clip in rendered_clips %}
+            <div class="comp-clip-item" data-clip-id="{{ clip.id }}" draggable="true"
+                 ondragstart="onDragStart(event)" ondragover="onDragOver(event)" ondrop="onDrop(event)">
+                <div class="thumb">
+                    {% if clip.thumbnail_url %}
+                    <img src="{{ clip.thumbnail_url }}?token={{ api_token }}" alt="" loading="lazy">
+                    {% else %}
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect></svg>
+                    {% endif %}
+                </div>
+                <div class="info">
+                    <div class="ctitle" title="{{ clip.title }}">{{ clip.title }}</div>
+                    <div class="ctrim">
+                        <input type="number" class="comp-trim-s" value="0" min="0" step="0.1" style="width:44px;" onchange="onCompChange()">
+                        <span>–</span>
+                        <input type="number" class="comp-trim-e" value="{{ '%.1f' % clip.duration }}" min="0" step="0.1" style="width:44px;" onchange="onCompChange()">
+                        <span>s</span>
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        <div id="comp-status" style="font-size:13px;color:var(--stone);margin-top:8px;"></div>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+    let currentTab = 'crop';
+
+    function switchTab(tab) {
+        document.querySelectorAll('.studio-tab').forEach(t => t.classList.toggle('active', t.id === 'tab-' + tab));
+        document.querySelectorAll('.studio-panel').forEach(p => p.classList.toggle('active', p.id === 'panel-' + tab));
+        currentTab = tab;
+    }
+
+    // ===== CROP EDITOR =====
+    let cropState = { clipId: null, panX: 0, panY: 0, zoom: 100, frameW: 0, frameH: 0 };
+    let isDragging = false, dragStartX = 0, dragStartY = 0, dragPanX = 0, dragPanY = 0;
+
+    function selectCropClip(clipId) {
+        document.querySelectorAll('#crop-clip-selector .clip-chip').forEach(c => c.classList.toggle('active', c.dataset.clipId === clipId));
+        cropState.clipId = clipId;
+        document.getElementById('crop-loading').style.display = 'flex';
+        document.getElementById('crop-frame-img').style.display = 'none';
+        document.getElementById('crop-apply-btn').disabled = true;
+        document.getElementById('crop-info').innerText = 'Loading…';
+
+        // Fetch existing overrides
+        var chips = document.querySelectorAll('#crop-clip-selector .clip-chip');
+        var idx = 0;
+        chips.forEach(function(c, i) { if (c.dataset.clipId === clipId) idx = i; });
+
+        // Reset sliders
+        document.getElementById('pan-x').value = 0;
+        document.getElementById('pan-y').value = 0;
+        document.getElementById('zoom').value = 100;
+        cropState.panX = 0; cropState.panY = 0; cropState.zoom = 100;
+        updateCropLabels();
+
+        loadCropFrame(clipId);
+    }
+
+    function loadCropFrame(clipId) {
+        var t = '{{ job.clips[0].start if job.clips else 2.5 }}';
+        fetch('/job/{{ job.id }}/clips/' + clipId + '/crop-frame?t=' + t + '&token={{ api_token }}')
+            .then(function(r) {
+                if (!r.ok) throw new Error('Failed to load frame');
+                return r.blob();
+            })
+            .then(function(blob) {
+                var url = URL.createObjectURL(blob);
+                var img = document.getElementById('crop-frame-img');
+                img.onload = function() {
+                    cropState.frameW = img.naturalWidth;
+                    cropState.frameH = img.naturalHeight;
+                    document.getElementById('crop-loading').style.display = 'none';
+                    img.style.display = 'block';
+                    document.getElementById('crop-apply-btn').disabled = false;
+                    document.getElementById('crop-info').innerHTML =
+                        'Drag the crop rectangle or use sliders to adjust framing. ' +
+                        'Original: ' + cropState.frameW + '×' + cropState.frameH;
+                    updateCropRect();
+                };
+                img.src = url;
+            })
+            .catch(function(e) {
+                document.getElementById('crop-loading').innerHTML = 'Error: ' + e.message;
+            });
+    }
+
+    function updateCropRect() {
+        var viewport = document.getElementById('crop-viewport');
+        var img = document.getElementById('crop-frame-img');
+        var rect = document.getElementById('crop-rect');
+        if (!img.complete || !cropState.frameW) return;
+
+        var vw = viewport.clientWidth;
+        var vh = viewport.clientHeight;
+        var scaleX = vw / cropState.frameW;
+        var scaleY = vh / cropState.frameH;
+        var scale = Math.min(scaleX, scaleY);
+
+        var dispW = cropState.frameW * scale;
+        var dispH = cropState.frameH * scale;
+        var offsetX = (vw - dispW) / 2;
+        var offsetY = (vh - dispH) / 2;
+
+        // Aspect ratio 9:16
+        var ar = 9 / 16;
+        var cropW, cropH;
+        if (dispW / dispH > ar) {
+            cropH = dispH;
+            cropW = dispH * ar;
+        } else {
+            cropW = dispW;
+            cropH = dispW / ar;
+        }
+
+        // Apply pan + zoom
+        var zoomF = cropState.zoom / 100;
+        var panPxX = cropState.panX * scale;
+        var panPxY = cropState.panY * scale;
+
+        var finalW = cropW / zoomF;
+        var finalH = cropH / zoomF;
+        var cx = offsetX + (dispW - finalW) / 2 + panPxX;
+        var cy = offsetY + (dispH - finalH) / 2 + panPxY;
+        cx = Math.max(0, Math.min(cx, vw - finalW));
+        cy = Math.max(0, Math.min(cy, vh - finalH));
+
+        rect.style.left = cx + 'px';
+        rect.style.top = cy + 'px';
+        rect.style.width = finalW + 'px';
+        rect.style.height = finalH + 'px';
+    }
+
+    function onCropSlider() {
+        cropState.panX = parseFloat(document.getElementById('pan-x').value);
+        cropState.panY = parseFloat(document.getElementById('pan-y').value);
+        cropState.zoom = parseFloat(document.getElementById('zoom').value);
+        updateCropLabels();
+        updateCropRect();
+    }
+
+    function updateCropLabels() {
+        document.getElementById('pan-x-val').innerText = cropState.panX;
+        document.getElementById('pan-y-val').innerText = cropState.panY;
+        document.getElementById('zoom-val').innerText = (cropState.zoom / 100).toFixed(1);
+    }
+
+    // Mouse drag on viewport
+    var viewport = document.getElementById('crop-viewport');
+    viewport.addEventListener('mousedown', function(e) {
+        if (e.target.tagName === 'IMG' || e.target.id === 'crop-rect' || e.target.closest('#crop-overlay')) {
+            isDragging = true;
+            dragStartX = e.clientX;
+            dragStartY = e.clientY;
+            dragPanX = cropState.panX;
+            dragPanY = cropState.panY;
+            viewport.style.cursor = 'grabbing';
+            e.preventDefault();
+        }
+    });
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        var dx = e.clientX - dragStartX;
+        var dy = e.clientY - dragStartY;
+        var viewportEl = document.getElementById('crop-viewport');
+        var scale = viewportEl.clientWidth / cropState.frameW;
+        cropState.panX = Math.max(-200, Math.min(200, dragPanX + dx / scale));
+        cropState.panY = Math.max(-200, Math.min(200, dragPanY + dy / scale));
+        document.getElementById('pan-x').value = cropState.panX;
+        document.getElementById('pan-y').value = cropState.panY;
+        updateCropLabels();
+        updateCropRect();
+    });
+    document.addEventListener('mouseup', function() {
+        isDragging = false;
+        viewport.style.cursor = 'grab';
+    });
+
+    // Zoom via scroll
+    viewport.addEventListener('wheel', function(e) {
+        e.preventDefault();
+        var delta = e.deltaY > 0 ? -5 : 5;
+        cropState.zoom = Math.max(50, Math.min(200, cropState.zoom + delta));
+        document.getElementById('zoom').value = cropState.zoom;
+        updateCropLabels();
+        updateCropRect();
+    }, { passive: false });
+
+    function resetCrop() {
+        cropState.panX = 0; cropState.panY = 0; cropState.zoom = 100;
+        document.getElementById('pan-x').value = 0;
+        document.getElementById('pan-y').value = 0;
+        document.getElementById('zoom').value = 100;
+        updateCropLabels();
+        updateCropRect();
+    }
+
+    function applyCrop() {
+        if (!cropState.clipId) return;
+        var btn = document.getElementById('crop-apply-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;"></span> Rendering…';
+        document.getElementById('crop-status').innerText = 'Re-rendering clip…';
+
+        var formData = new FormData();
+        formData.append('pan_x', cropState.panX);
+        formData.append('pan_y', cropState.panY);
+        formData.append('zoom', cropState.zoom / 100);
+
+        fetch('/job/{{ job.id }}/clips/' + cropState.clipId + '/crop', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer {{ api_token }}' },
+            body: formData,
+        }).then(function(r) {
+            if (r.ok) {
+                document.getElementById('crop-status').innerText = 'Crop applied and clip re-rendered successfully.';
+                showToast('Crop updated');
+            } else {
+                return r.text().then(function(t) { throw new Error(t); });
+            }
+        }).catch(function(e) {
+            document.getElementById('crop-status').innerText = 'Error: ' + e.message;
+            showToast('Crop failed: ' + e.message, true);
+        }).finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg> Apply & Re-render';
+        });
+    }
+
+    // ===== SUBTITLE EDITOR =====
+    let subState = { clipId: null, segments: [], edits: {} };
+
+    function selectSubClip(clipId) {
+        document.querySelectorAll('#sub-clip-selector .clip-chip').forEach(c => c.classList.toggle('active', c.dataset.clipId === clipId));
+        subState.clipId = clipId;
+        document.getElementById('sub-style-controls').style.display = 'flex';
+        document.getElementById('subtitle-list').innerHTML = '<div style="text-align:center;padding:40px;color:var(--stone);"><span class="spinner"></span> Loading subtitles…</div>';
+
+        fetch('/job/{{ job.id }}/clips/' + clipId + '/subtitles?token={{ api_token }}')
+            .then(function(r) {
+                if (!r.ok) throw new Error('Failed to load subtitles');
+                return r.json();
+            })
+            .then(function(data) {
+                subState.segments = data.segments || [];
+                subState.edits = {};
+                // Apply existing edits
+                subState.segments.forEach(function(seg, i) {
+                    if (seg.edited) {
+                        subState.edits[seg.original_index] = { text: seg.text };
+                    }
+                });
+                renderSubtitleList();
+                // Set style controls
+                if (data.style) {
+                    if (data.style.font_size_pct) document.getElementById('sub-font-size').value = data.style.font_size_pct;
+                    if (data.style.position) document.getElementById('sub-position').value = data.style.position;
+                }
+            })
+            .catch(function(e) {
+                document.getElementById('subtitle-list').innerHTML = '<div style="text-align:center;padding:40px;color:var(--accent-pink);">Error: ' + e.message + '</div>';
+            });
+    }
+
+    function renderSubtitleList() {
+        var list = document.getElementById('subtitle-list');
+        if (!subState.segments.length) {
+            list.innerHTML = '<div style="text-align:center;padding:40px;color:var(--stone);">No subtitles found for this clip.</div>';
+            return;
+        }
+        var html = '';
+        subState.segments.forEach(function(seg, i) {
+            var edited = subState.edits[seg.original_index];
+            var text = edited ? edited.text : seg.text;
+            var isEdited = !!edited;
+            var s = formatTime(seg.start);
+            var e = formatTime(seg.end);
+            html += '<div class="subtitle-row' + (isEdited ? ' edited' : '') + '" data-idx="' + i + '">';
+            html += '<span class="time">' + s + ' → ' + e + '</span>';
+            html += '<div class="text">';
+            if (isEdited) {
+                html += '<textarea onchange="onSubEdit(' + i + ', this.value)" data-original="' + escHtml(seg.text) + '">' + escHtml(text) + '</textarea>';
+            } else {
+                html += '<span>' + escHtml(text) + '</span>';
+            }
+            html += '</div>';
+            html += '<div class="actions">';
+            if (!isEdited) {
+                html += '<button class="btn-icon" title="Edit" onclick="startSubEdit(' + i + ')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg></button>';
+            } else {
+                html += '<button class="btn-icon" title="Revert" onclick="revertSubEdit(' + i + ')"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></button>';
+            }
+            html += '</div></div>';
+        });
+        list.innerHTML = html;
+    }
+
+    function startSubEdit(idx) {
+        var seg = subState.segments[idx];
+        if (!seg) return;
+        subState.edits[seg.original_index] = { text: seg.text };
+        renderSubtitleList();
+        // Focus the textarea
+        var rows = document.querySelectorAll('#subtitle-list .subtitle-row');
+        if (rows[idx]) {
+            var ta = rows[idx].querySelector('textarea');
+            if (ta) ta.focus();
+        }
+    }
+
+    function onSubEdit(idx, value) {
+        var seg = subState.segments[idx];
+        if (!seg) return;
+        subState.edits[seg.original_index] = { text: value };
+    }
+
+    function revertSubEdit(idx) {
+        var seg = subState.segments[idx];
+        if (!seg) return;
+        delete subState.edits[seg.original_index];
+        renderSubtitleList();
+    }
+
+    function saveSubtitleEdits() {
+        var edits = [];
+        Object.keys(subState.edits).forEach(function(origIdx) {
+            edits.push({ index: parseInt(origIdx), text: subState.edits[origIdx].text, start_offset: 0 });
+        });
+        var style = {
+            font_size_pct: parseInt(document.getElementById('sub-font-size').value),
+            position: document.getElementById('sub-position').value,
+        };
+        var btn = document.querySelector('#sub-style-controls .btn-primary');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width:14px;height:14px;"></span> Rendering…';
+
+        fetch('/job/{{ job.id }}/clips/' + subState.clipId + '/subtitles', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer {{ api_token }}', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ edits: edits, style: style }),
+        }).then(function(r) {
+            if (r.ok) {
+                showToast('Subtitles saved, clip re-rendering');
+                document.querySelector('#sub-style-controls .btn-primary').innerHTML = 'Save & Re-render';
+            } else {
+                throw new Error('Save failed');
+            }
+        }).catch(function(e) {
+            showToast('Error: ' + e.message, true);
+        }).finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = 'Save & Re-render';
+        });
+    }
+
+    // ===== COMPOSITION =====
+    var compOrder = [];
+    var compId = null;
+
+    document.querySelectorAll('#comp-clips .comp-clip-item').forEach(function(el, i) {
+        compOrder.push(el.dataset.clipId);
+    });
+
+    function onDragStart(e) {
+        e.dataTransfer.setData('text/plain', e.target.closest('.comp-clip-item').dataset.clipId);
+    }
+
+    function onDragOver(e) { e.preventDefault(); }
+
+    function onDrop(e) {
+        e.preventDefault();
+        var id = e.dataTransfer.getData('text/plain');
+        var target = e.target.closest('.comp-clip-item');
+        if (!target || target.dataset.clipId === id) return;
+        var from = document.querySelector('#comp-clips [data-clip-id="' + id + '"]');
+        var parent = document.getElementById('comp-clips');
+        if (from && target) {
+            parent.insertBefore(from, target.nextSibling);
+            updateCompOrder();
+        }
+    }
+
+    function updateCompOrder() {
+        compOrder = [];
+        document.querySelectorAll('#comp-clips .comp-clip-item').forEach(function(el) {
+            compOrder.push(el.dataset.clipId);
+        });
+    }
+
+    function onCompChange() {
+        updateCompOrder();
+    }
+
+    function renderComposition() {
+        var clips = [];
+        document.querySelectorAll('#comp-clips .comp-clip-item').forEach(function(el) {
+            var trimS = parseFloat(el.querySelector('.comp-trim-s').value) || 0;
+            var trimE = parseFloat(el.querySelector('.comp-trim-e').value) || 0;
+            clips.push({
+                clip_id: el.dataset.clipId,
+                order: clips.length,
+                trim_start: trimS,
+                trim_end: trimE,
+            });
+        });
+
+        if (!clips.length) { showToast('No clips to render', true); return; }
+
+        var statusEl = document.getElementById('comp-status');
+        statusEl.innerHTML = '<span class="spinner"></span> Creating composition…';
+
+        // First create the composition
+        fetch('/jobs/{{ job.id }}/compositions', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer {{ api_token }}' },
+            body: new URLSearchParams({ title: document.getElementById('comp-title').value || 'Compilation' }),
+        }).then(function(r) { return r.json(); })
+        .then(function(comp) {
+            compId = comp.id;
+            // Update clips, transition and trigger render
+            return fetch('/jobs/{{ job.id }}/compositions/' + compId + '/clips', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer {{ api_token }}', 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    clips: clips,
+                    transition: document.getElementById('comp-transition').value,
+                    transition_duration: parseFloat(document.getElementById('comp-transition-dur').value),
+                    title: document.getElementById('comp-title').value || 'Compilation',
+                }),
+            });
+        }).then(function(r) { return r.json(); })
+        .then(function(comp) {
+            statusEl.innerHTML = '<span class="spinner"></span> Rendering composition…';
+            return fetch('/jobs/{{ job.id }}/compositions/' + comp.id + '/render', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer {{ api_token }}' },
+            });
+        }).then(function(r) { return r.json(); })
+        .then(function(result) {
+            if (result.status === 'done' && result.download_url) {
+                statusEl.innerHTML = 'Render complete! <a href="' + result.download_url + '?token={{ api_token }}" class="btn-primary" style="display:inline-flex;padding:6px 14px;font-size:13px;margin-left:8px;" download><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg> Download</a>';
+                showToast('Composition rendered!');
+            } else {
+                statusEl.innerHTML = 'Render completed.';
+                showToast('Composition rendered');
+            }
+        }).catch(function(e) {
+            statusEl.innerHTML = 'Error: ' + e.message;
+            showToast('Render failed: ' + e.message, true);
+        });
+    }
+
+    // ===== HELPERS =====
+    function formatTime(s) {
+        s = Math.max(0, s);
+        var m = Math.floor(s / 60);
+        var sec = Math.floor(s % 60);
+        return m + ':' + (sec < 10 ? '0' : '') + sec;
+    }
+
+    function escHtml(s) {
+        if (!s) return '';
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // Auto-select first clip
+    document.addEventListener('DOMContentLoaded', function() {
+        var firstCrop = document.querySelector('#crop-clip-selector .clip-chip.active');
+        if (firstCrop) selectCropClip(firstCrop.dataset.clipId);
+        var firstSub = document.querySelector('#sub-clip-selector .clip-chip.active');
+        if (firstSub) selectSubClip(firstSub.dataset.clipId);
+    });
+</script>
+{% endblock %}
