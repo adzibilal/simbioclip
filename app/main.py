@@ -336,12 +336,43 @@ async def get_job_status(job_id: str, _: str = Depends(verify_token)):
 
 @app.delete("/jobs/{job_id}")
 async def delete_job(job_id: str, _: str = Depends(verify_token)):
-    """Deletes a job metadata and all associated local files (clips/source)."""
+    """Deletes a job metadata and all associated local files (clips/source).
+    Cancels the RQ job if still running or queued."""
     job = Job.load(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-        
+
+    # Mark as cancelled so running workers abort early
     job_dir = job.get_dir()
+    cancel_marker = os.path.join(job_dir, ".cancelled")
+    try:
+        with open(cancel_marker, "w") as f:
+            f.write("cancelled")
+    except Exception:
+        pass
+
+    job.status = "cancelled"
+    job.error = "Cancelled by user"
+    try:
+        job.save()
+    except Exception:
+        pass
+
+    # Cancel any pending or running RQ job
+    try:
+        from redis import Redis
+        from rq import Queue
+        r = Redis.from_url(REDIS_URL)
+        q = Queue("default", connection=r)
+        rq_jobs = q.get_jobs()
+        for rq_job in rq_jobs:
+            if rq_job.args and len(rq_job.args) > 0 and str(rq_job.args[0]) == job_id:
+                rq_job.cancel()
+                logger.info(f"Cancelled RQ job for {job_id}")
+                break
+    except Exception as e:
+        logger.warning(f"Failed to cancel RQ job for {job_id}: {e}")
+
     try:
         if os.path.exists(job_dir):
             shutil.rmtree(job_dir)
@@ -351,6 +382,52 @@ async def delete_job(job_id: str, _: str = Depends(verify_token)):
         logger.error(f"Failed to delete job files: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete job files: {e}")
 
+
+@app.post("/jobs/{job_id}/cancel")
+async def cancel_job(job_id: str, _: str = Depends(verify_token)):
+    """Cancels a running or queued job without deleting its files
+    so it can be retried later."""
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    clean_status = job.status.split(" ")[0]
+    if clean_status not in ("queued", "downloading", "transcribing", "finding_moments",
+                             "classifying", "diarizing", "rendering"):
+        raise HTTPException(status_code=400, detail="Job is not running")
+
+    job_dir = job.get_dir()
+    cancel_marker = os.path.join(job_dir, ".cancelled")
+    try:
+        with open(cancel_marker, "w") as f:
+            f.write("cancelled")
+    except Exception:
+        pass
+
+    job.status = "cancelled"
+    job.error = "Cancelled by user"
+    try:
+        job.save()
+    except Exception:
+        pass
+
+    # Cancel any pending or running RQ job
+    try:
+        from redis import Redis
+        from rq import Queue
+        r = Redis.from_url(REDIS_URL)
+        q = Queue("default", connection=r)
+        rq_jobs = q.get_jobs()
+        for rq_job in rq_jobs:
+            if rq_job.args and len(rq_job.args) > 0 and str(rq_job.args[0]) == job_id:
+                rq_job.cancel()
+                logger.info(f"Cancelled RQ job for {job_id}")
+                break
+    except Exception as e:
+        logger.warning(f"Failed to cancel RQ job for {job_id}: {e}")
+
+    return {"message": f"Job {job_id} cancelled"}
+
 @app.post("/jobs/{job_id}/retry")
 async def retry_job(job_id: str, _: str = Depends(verify_token)):
     """Resets a failed job and re-enqueues it for processing."""
@@ -359,7 +436,7 @@ async def retry_job(job_id: str, _: str = Depends(verify_token)):
         raise HTTPException(status_code=404, detail="Job not found")
 
     all_clips_empty = all(c.file_path is None for c in job.clips)
-    if job.status not in ("failed", "done") or (job.status == "done" and not all_clips_empty):
+    if job.status not in ("failed", "done", "cancelled") or (job.status == "done" and not all_clips_empty):
         raise HTTPException(status_code=400, detail="Only failed or empty done jobs can be retried")
 
     # Clean up old rendered clips; keep source.mp4, segments*.json, diarization.json
@@ -396,7 +473,7 @@ async def retry_job_step(job_id: str, step: str, _: str = Depends(verify_token))
         raise HTTPException(status_code=400, detail=f"Unknown step '{step}'")
 
     clean_status = job.status.split(" ")[0]
-    if clean_status not in ("done", "failed"):
+    if clean_status not in ("done", "failed", "cancelled"):
         raise HTTPException(
             status_code=409,
             detail="Job is still running. Wait for it to finish before retrying a step.",

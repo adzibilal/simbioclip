@@ -88,9 +88,29 @@ def reset_job_step(job: Job, step: str) -> set:
     job.error = None
     job.failed_step = None
     job.status = "queued"
+    # Remove cancellation marker so retries can proceed
+    cancel_file = os.path.join(job_dir, ".cancelled")
+    if os.path.exists(cancel_file):
+        try:
+            os.remove(cancel_file)
+        except OSError:
+            pass
     job.save()
     logger.info(f"Reset job {job.id} from step '{step}' (invalidated: {sorted(invalid)})")
     return invalid
+
+
+def _job_is_cancelled(job_dir: str) -> bool:
+    return os.path.exists(os.path.join(job_dir, ".cancelled"))
+
+
+def _raise_if_cancelled(job: Job, job_dir: str):
+    if _job_is_cancelled(job_dir):
+        job.status = "cancelled"
+        job.error = "Cancelled by user"
+        job.save()
+        logger.info(f"Job {job.id} was cancelled. Aborting pipeline.")
+        raise SystemExit(0)
 
 
 def process_video_job(job_id: str) -> None:
@@ -104,6 +124,7 @@ def process_video_job(job_id: str) -> None:
     current_step = "download"
     try:
         job_dir = job.get_dir()
+        _raise_if_cancelled(job, job_dir)
 
         # --- Step: Download (reuse source.* if already on disk) ---
         current_step = "download"
@@ -113,7 +134,9 @@ def process_video_job(job_id: str) -> None:
         else:
             job.status = "downloading"
             job.save()
+            _raise_if_cancelled(job, job_dir)
             video_path = download_job_video(job)
+            _raise_if_cancelled(job, job_dir)
 
         # --- Step: Transcribe (reuse segments_raw.json if already on disk) ---
         current_step = "transcribe"
@@ -198,6 +221,8 @@ def process_video_job(job_id: str) -> None:
         job.failed_step = None
         logger.info(f"Pipeline finished successfully for job {job_id}.")
 
+    except SystemExit:
+        pass
     except Exception as e:
         logger.exception(f"Pipeline failed for job {job_id} at step '{current_step}': {e}")
         job.status = "failed"

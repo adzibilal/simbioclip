@@ -12,9 +12,7 @@ logger = logging.getLogger("simbioclip.pipeline.download")
 
 def _start_size_watcher(job: Job, job_dir: str, total_bytes: int, stop_event: threading.Event):
     """Poll the source.* partial file size and surface progress to job.status + logs.
-
-    Used because yt-dlp's progress_hooks only fire on `finished` when
-    force_keyframes_at_cuts=True triggers the external (ffmpeg) downloader.
+    Also aborts early if a .cancelled marker file appears.
     """
 
     def watch():
@@ -22,6 +20,9 @@ def _start_size_watcher(job: Job, job_dir: str, total_bytes: int, stop_event: th
         last_save_t = 0.0
         last_pct = -100.0
         while not stop_event.is_set():
+            if os.path.exists(os.path.join(job_dir, ".cancelled")):
+                logger.info(f"Job {job.id} cancelled during download — stopping watcher.")
+                break
             try:
                 files = glob.glob(os.path.join(job_dir, "source.*"))
                 downloaded = sum(os.path.getsize(f) for f in files if os.path.isfile(f))
@@ -170,9 +171,14 @@ def download_job_video(job: Job) -> str:
         stop_event = threading.Event()
         _start_size_watcher(job, job_dir, total_bytes, stop_event)
         try:
+            if os.path.exists(os.path.join(job_dir, ".cancelled")):
+                raise RuntimeError("Job cancelled before download started")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.download([job.source_url])
         except Exception as e:
+            if os.path.exists(os.path.join(job_dir, ".cancelled")):
+                logger.info(f"Download aborted for cancelled job {job.id}")
+                raise RuntimeError("Job was cancelled")
             logger.error(f"yt-dlp failed: {e}")
             raise RuntimeError(f"Video download failed: {str(e)}")
         finally:

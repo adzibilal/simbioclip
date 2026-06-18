@@ -71,6 +71,18 @@
             </svg>
         </button>
         {% endif %}
+        {% if clean_status in ['queued', 'downloading', 'transcribing', 'finding_moments', 'classifying', 'diarizing', 'rendering'] %}
+        <button class="row-del"
+                title="Cancel job"
+                hx-post="/jobs/{{ job.id }}/cancel"
+                hx-target="#job-row-{{ job.id }}"
+                hx-swap="outerHTML"
+                hx-on::after-request="document.body.dispatchEvent(new Event('reload-jobs'))">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--accent-pink);">
+                <circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>
+            </svg>
+        </button>
+        {% endif %}
         <button class="row-del"
                 title="Delete job and all clips"
                 hx-delete="/jobs/{{ job.id }}"

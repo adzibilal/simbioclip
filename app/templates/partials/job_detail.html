@@ -78,6 +78,22 @@
     </div>
     {% endif %}
 
+    {% if clean_status in ['queued', 'downloading', 'transcribing', 'finding_moments', 'classifying', 'diarizing', 'rendering'] %}
+    <div style="margin-top:12px;">
+        <button class="btn-danger" style="font-size:13px; padding:7px 14px;"
+                title="Cancel this running job"
+                hx-post="/jobs/{{ job.id }}/cancel"
+                hx-target="#job-detail-body"
+                hx-swap="innerHTML"
+                hx-on::after-request="document.body.dispatchEvent(new Event('reload-jobs'))">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px; margin-right:6px;">
+                <circle cx="12" cy="12" r="10"></circle><line x1="15" y1="9" x2="9" y2="15"></line><line x1="9" y1="9" x2="15" y2="15"></line>
+            </svg>
+            Cancel
+        </button>
+    </div>
+    {% endif %}
+
     {% if job.error %}
     <div class="error-box">
         <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0; margin-top:1px;">
