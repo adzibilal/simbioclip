@@ -5,6 +5,7 @@ import logging
 import threading
 import yt_dlp
 from app.models import Job
+from app.config import COOKIES_FILE
 
 logger = logging.getLogger("simbioclip.pipeline.download")
 
@@ -77,7 +78,14 @@ def _estimate_total_bytes(source_url: str, ydl_opts: dict, clip_start, clip_end)
         "noplaylist": True,
         "format": ydl_opts.get("format"),
         "skip_download": True,
+        "js_runtimes": {"node": {}},
     }
+    if COOKIES_FILE and os.path.exists(COOKIES_FILE):
+        with open(COOKIES_FILE) as _f:
+            _content = _f.read()
+        if any(_line.strip() and '\t' in _line for _line in _content.splitlines()):
+            probe_opts["cookiefile"] = COOKIES_FILE
+    probe_opts["extractor_args"] = {"youtube": {"player_client": ["web"]}}
     try:
         with yt_dlp.YoutubeDL(probe_opts) as ydl:
             info = ydl.extract_info(source_url, download=False)
@@ -101,6 +109,20 @@ def _estimate_total_bytes(source_url: str, ydl_opts: dict, clip_start, clip_end)
         return 0
 
 
+def _resolve_format(resolution: str) -> str:
+    height_map = {
+        "2160p": 2160, "1440p": 1440, "1080p": 1080,
+        "720p": 720, "480p": 480, "360p": 360,
+    }
+    h = height_map.get(resolution)
+    if h is None:
+        return "bestvideo+bestaudio/best"
+    return (
+        f"bestvideo[height<={h}]+bestaudio/"
+        f"best[height<={h}]/best"
+    )
+
+
 def download_job_video(job: Job) -> str:
     job_dir = job.get_dir()
 
@@ -108,11 +130,7 @@ def download_job_video(job: Job) -> str:
         logger.info(f"Starting download for URL: {job.source_url}")
 
         ydl_opts = {
-            "format": (
-                "bestvideo[height<=1080][vcodec^=avc1]+bestaudio/"
-                "best[height<=1080][vcodec^=avc1]/"
-                "bestvideo[height<=1080]+bestaudio/best[height<=1080]/best"
-            ),
+            "format": _resolve_format(job.download_resolution),
             "outtmpl": os.path.join(job_dir, "source.%(ext)s"),
             "merge_output_format": "mp4",
             "noplaylist": True,
@@ -126,11 +144,20 @@ def download_job_video(job: Job) -> str:
             "extractor_retries": 3,
             "socket_timeout": 60,
             "concurrent_fragment_downloads": 1,
+            "js_runtimes": {"node": {}},
             "retry_sleep_functions": {
                 "http": lambda n: min(2 ** n, 30),
                 "fragment": lambda n: min(2 ** n, 30),
             },
         }
+
+        if COOKIES_FILE and os.path.exists(COOKIES_FILE):
+            with open(COOKIES_FILE) as f:
+                content = f.read()
+            if any(line.strip() and '\t' in line for line in content.splitlines()):
+                ydl_opts["cookiefile"] = COOKIES_FILE
+                logger.info(f"Using cookies file: {COOKIES_FILE}")
+        ydl_opts["extractor_args"] = {"youtube": {"player_client": ["web"]}}
 
         if job.clip_start is not None and job.clip_end is not None and job.clip_end > job.clip_start:
             logger.info(f"Downloading range [{job.clip_start}s – {job.clip_end}s]")

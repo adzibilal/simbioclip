@@ -285,6 +285,17 @@
             transform: translateY(120px); opacity: 0; transition: all .3s cubic-bezier(0.4,0,0.2,1); }
         .toast.show { transform: translateY(0); opacity: 1; }
 
+        /* Cookies FAB */
+        #cookies-fab { position: fixed; bottom: 24px; right: 24px; z-index: 999; width: 54px; height: 54px;
+            border-radius: 50%; border: none; background: var(--canvas); color: var(--ink);
+            box-shadow: 0 4px 16px rgba(0,30,43,0.18); cursor: pointer; display: flex; align-items: center;
+            justify-content: center; transition: transform .15s ease, box-shadow .15s ease; }
+        #cookies-fab:hover { transform: scale(1.06); box-shadow: 0 8px 28px rgba(0,30,43,0.22); }
+        #cookies-fab .fab-label { position: absolute; right: 60px; background: var(--charcoal); color: var(--on-dark);
+            font-size: 12px; font-weight: 600; padding: 5px 11px; border-radius: 8px; white-space: nowrap;
+            opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+        #cookies-fab:hover .fab-label { opacity: 1; }
+
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
         @keyframes spin { to { transform: rotate(360deg); } }
         @keyframes modal-in { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
@@ -331,6 +342,35 @@
         </div>
     </div>
 
+    <!-- Cookies update FAB -->
+    <button id="cookies-fab" onclick="openCookiesModal()" title="Update YouTube cookies" aria-label="Update cookies">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2a10 10 0 0 1 7.38 16.75A10 10 0 0 1 9.5 21.5 7 7 0 0 1 4 16.25 10 10 0 0 1 12 2z"/>
+            <circle cx="9" cy="10" r="1.5" fill="currentColor" stroke="none"/>
+            <circle cx="15" cy="10" r="1.5" fill="currentColor" stroke="none"/>
+            <circle cx="12" cy="15" r="1.5" fill="currentColor" stroke="none"/>
+        </svg>
+        <span class="fab-label">Cookies</span>
+    </button>
+
+    <!-- Cookies modal -->
+    <div class="modal" id="cookies-modal" onclick="if(event.target===this) closeCookiesModal()">
+        <div class="modal-card" style="max-width: 640px;">
+            <div class="modal-head">
+                <div>
+                    <h2>YouTube Cookies</h2>
+                    <p>Paste Netscape-format cookies exported from your browser.</p>
+                </div>
+                <button class="modal-close" onclick="closeCookiesModal()">×</button>
+            </div>
+            <textarea id="cookies-textarea" style="width:100%; height:320px; font-family:var(--font-mono); font-size:12px; padding:12px; border:1px solid var(--hairline-strong); border-radius:10px; resize:vertical; outline:none; background:var(--surface); color:var(--ink);" placeholder="Paste cookies here..."></textarea>
+            <div style="display:flex; gap:10px; margin-top:14px; justify-content:flex-end;">
+                <button class="btn-secondary" onclick="closeCookiesModal()">Cancel</button>
+                <button class="btn-primary" onclick="saveCookies()" id="cookies-save-btn">Save cookies</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Shared toast -->
     <div id="toast-notif" class="toast">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00B85C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -365,6 +405,51 @@
             window.__toastTimer = setTimeout(() => toast.classList.remove('show'), 4000);
         }
         document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeClipModal(); });
+
+        function openCookiesModal() {
+            document.getElementById('cookies-modal').classList.add('open');
+            const btn = document.getElementById('cookies-save-btn');
+            btn.disabled = true; btn.textContent = 'Loading…';
+            fetch('/api/cookies', { headers: { 'Authorization': 'Bearer ' + '{{ api_token }}' } })
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('cookies-textarea').value = d.cookies || '';
+                    btn.disabled = false; btn.textContent = 'Save cookies';
+                })
+                .catch(() => {
+                    document.getElementById('cookies-textarea').value = '';
+                    btn.disabled = false; btn.textContent = 'Save cookies';
+                });
+        }
+        function closeCookiesModal() {
+            document.getElementById('cookies-modal').classList.remove('open');
+        }
+        function saveCookies() {
+            const btn = document.getElementById('cookies-save-btn');
+            const ta = document.getElementById('cookies-textarea');
+            btn.disabled = true; btn.textContent = 'Saving…';
+            const form = new FormData();
+            form.append('cookies', ta.value);
+            fetch('/api/update-cookies', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + '{{ api_token }}' },
+                body: form
+            })
+                .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+                .then(({ ok, data }) => {
+                    if (ok) {
+                        showToast('Cookies saved (' + data.lines + ' lines)');
+                        closeCookiesModal();
+                    } else {
+                        showToast(data.detail || 'Failed to save cookies', true);
+                        btn.disabled = false; btn.textContent = 'Save cookies';
+                    }
+                })
+                .catch(() => {
+                    showToast('Network error', true);
+                    btn.disabled = false; btn.textContent = 'Save cookies';
+                });
+        }
 
         /* Never re-fetch a polled region while one of its videos is actively playing */
         document.body.addEventListener('htmx:beforeRequest', function (evt) {

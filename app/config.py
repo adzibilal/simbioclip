@@ -38,6 +38,11 @@ LLM_ROUTERS_RAW = os.getenv(
 LLM_TIMEOUT = float(os.getenv("LLM_TIMEOUT", "240"))
 LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "1"))
 
+# YouTube cookies file path (for bot detection bypass)
+# Export cookies from your browser (e.g. "Get cookies.txt" extension)
+# and mount the file at COOKIES_FILE path.
+COOKIES_FILE = os.getenv("COOKIES_FILE", "")
+
 def get_llm_routers():
     try:
         return json.loads(LLM_ROUTERS_RAW)

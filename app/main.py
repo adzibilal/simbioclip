@@ -15,7 +15,7 @@ from fastapi.templating import Jinja2Templates
 from redis import Redis
 from rq import Queue
 
-from app.config import API_TOKEN, REDIS_URL, DATA_DIR
+from app.config import API_TOKEN, REDIS_URL, DATA_DIR, COOKIES_FILE
 from app.models import Job, Clip, PIPELINE_STEPS, CLIP_DURATION_PRESETS
 from app.pipeline.orchestrator import process_video_job, reset_job_step
 from app.pipeline.render import render_job_clips, render_one_clip, CAPTION_STYLES
@@ -172,8 +172,15 @@ async def preview_video(source_url: str = Form(...), _: str = Depends(verify_tok
         cmd = [
             "yt-dlp", "--dump-json", "--no-download",
             "--no-playlist", "--quiet", "--no-warnings",
-            source_url
+            "--js-runtimes", "node",
+            "--extractor-args", "youtube:player_client=web",
         ]
+        if COOKIES_FILE and os.path.exists(COOKIES_FILE):
+            with open(COOKIES_FILE) as _f:
+                _content = _f.read()
+            if any(_line.strip() and '\t' in _line for _line in _content.splitlines()):
+                cmd += ["--cookies", COOKIES_FILE]
+        cmd.append(source_url)
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
         if result.returncode != 0:
             raise RuntimeError(result.stderr[:200])
@@ -190,6 +197,36 @@ async def preview_video(source_url: str = Form(...), _: str = Depends(verify_tok
         logger.error(f"Preview failed for {source_url}: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to fetch video info: {str(e)}")
 
+@app.get("/api/cookies")
+async def get_cookies(_: str = Depends(verify_token)):
+    """Return current cookies file content."""
+    if not COOKIES_FILE or not os.path.exists(COOKIES_FILE):
+        return {"cookies": ""}
+    try:
+        with open(COOKIES_FILE) as f:
+            content = f.read()
+        return {"cookies": content}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read cookies: {str(e)}")
+
+@app.post("/api/update-cookies")
+async def update_cookies(cookies: str = Form(...), _: str = Depends(verify_token)):
+    """Save new cookies content to the cookies file."""
+    if not COOKIES_FILE:
+        raise HTTPException(status_code=500, detail="COOKIES_FILE path not configured")
+    lines = cookies.strip().splitlines()
+    has_netscape = any("# Netscape" in line for line in lines)
+    has_youtube = any(".youtube.com" in line for line in lines)
+    if not has_netscape or not has_youtube:
+        raise HTTPException(status_code=400, detail="Invalid cookies format. Expected Netscape format with .youtube.com entries.")
+    try:
+        with open(COOKIES_FILE, "w") as f:
+            f.write(cookies)
+        logger.info(f"Cookies updated ({len(lines)} lines)")
+        return {"ok": True, "lines": len(lines)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to write cookies: {str(e)}")
+
 @app.post("/jobs")
 async def create_job(
     source_url: Optional[str] = Form(None),
@@ -204,6 +241,7 @@ async def create_job(
     caption_style: str = Form("bold_pop"),
     clip_duration: str = Form("auto"),
     dense_cut: bool = Form(False),
+    download_resolution: str = Form("1080p"),
     _: str = Depends(verify_token)
 ):
     """
@@ -223,6 +261,10 @@ async def create_job(
     if clip_duration not in CLIP_DURATION_PRESETS:
         raise HTTPException(status_code=400, detail=f"Invalid clip_duration: {clip_duration}")
 
+    valid_resolutions = ("best", "2160p", "1440p", "1080p", "720p", "480p", "360p")
+    if download_resolution not in valid_resolutions:
+        raise HTTPException(status_code=400, detail=f"Invalid download_resolution: {download_resolution}")
+
     if source_url:
         import re
         match = re.search(r'(https?://[^\s]+)', source_url.strip())
@@ -240,7 +282,8 @@ async def create_job(
     job = Job(id=job_id, max_clips=max_clips, lang=lang, layout_mode=layout_mode,
               aspect_ratio=aspect_ratio, audio_ducking=audio_ducking,
               clip_start=clip_start, clip_end=clip_end,
-              caption_style=caption_style, clip_duration=clip_duration, dense_cut=dense_cut)
+              caption_style=caption_style, clip_duration=clip_duration, dense_cut=dense_cut,
+              download_resolution=download_resolution)
     
     # Setup job directory
     job_dir = job.get_dir()

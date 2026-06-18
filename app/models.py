@@ -105,6 +105,7 @@ class Job(BaseModel):
     caption_style: str = "bold_pop"
     clip_duration: str = "auto"
     dense_cut: bool = False
+    download_resolution: str = "1080p"
     silence_ranges: List[List[float]] = []
     download_pct: Optional[float] = None
     download_downloaded_mb: Optional[float] = None
