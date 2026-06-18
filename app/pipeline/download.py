@@ -85,7 +85,6 @@ def _estimate_total_bytes(source_url: str, ydl_opts: dict, clip_start, clip_end)
             _content = _f.read()
         if any(_line.strip() and '\t' in _line for _line in _content.splitlines()):
             probe_opts["cookiefile"] = COOKIES_FILE
-    probe_opts["extractor_args"] = {"youtube": {"player_client": ["web"]}}
     try:
         with yt_dlp.YoutubeDL(probe_opts) as ydl:
             info = ydl.extract_info(source_url, download=False)
@@ -157,7 +156,6 @@ def download_job_video(job: Job) -> str:
             if any(line.strip() and '\t' in line for line in content.splitlines()):
                 ydl_opts["cookiefile"] = COOKIES_FILE
                 logger.info(f"Using cookies file: {COOKIES_FILE}")
-        ydl_opts["extractor_args"] = {"youtube": {"player_client": ["web"]}}
 
         if job.clip_start is not None and job.clip_end is not None and job.clip_end > job.clip_start:
             logger.info(f"Downloading range [{job.clip_start}s – {job.clip_end}s]")

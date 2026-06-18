@@ -173,7 +173,6 @@ async def preview_video(source_url: str = Form(...), _: str = Depends(verify_tok
             "yt-dlp", "--dump-json", "--no-download",
             "--no-playlist", "--quiet", "--no-warnings",
             "--js-runtimes", "node",
-            "--extractor-args", "youtube:player_client=web",
         ]
         if COOKIES_FILE and os.path.exists(COOKIES_FILE):
             with open(COOKIES_FILE) as _f:
