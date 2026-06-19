@@ -49,11 +49,11 @@ COOKIES_FILE = os.getenv("COOKIES_FILE", "")
 COOKIES_FROM_BROWSER = os.getenv("COOKIES_FROM_BROWSER", "")
 
 # Number of concurrent fragment downloads (higher = faster, default 1)
-CONCURRENT_FRAGMENTS = int(os.getenv("CONCURRENT_FRAGMENTS", "5"))
+CONCURRENT_FRAGMENTS = int(os.getenv("CONCURRENT_FRAGMENTS", "10"))
 
 # aria2c external downloader — dramatically faster for single-file downloads.
 # Requires aria2 to be installed in the container.
-ARIA2C_ENABLED = os.getenv("ARIA2C_ENABLED", "true").lower() == "true"
+ARIA2C_ENABLED = os.getenv("ARIA2C_ENABLED", "false").lower() == "true"
 ARIA2C_CONNECTIONS = int(os.getenv("ARIA2C_CONNECTIONS", "16"))
 
 # Throttled rate bypass — YouTube rate-limits certain clients. Setting this to

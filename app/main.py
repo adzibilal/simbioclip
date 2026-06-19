@@ -173,7 +173,6 @@ async def preview_video(source_url: str = Form(...), _: str = Depends(verify_tok
             "yt-dlp", "--dump-json", "--no-download",
             "--no-playlist", "--quiet", "--no-warnings",
             "--js-runtimes", "node",
-            "--extractor-args", "youtube:player_client=tv_embedded,ios,android,web",
         ]
         if COOKIES_FILE and os.path.exists(COOKIES_FILE):
             with open(COOKIES_FILE) as _f:
@@ -186,12 +185,23 @@ async def preview_video(source_url: str = Form(...), _: str = Depends(verify_tok
             raise RuntimeError(result.stderr[:200])
         data = json.loads(result.stdout)
         webpage_url = data.get("webpage_url", source_url)
+        formats = data.get("formats", [])
+        seen = set()
+        available_res = []
+        for f in formats:
+            h = f.get("height")
+            if h and h not in seen and h <= 2160:
+                seen.add(h)
+                label = f"{h}p"
+                available_res.append({"value": label, "label": label})
+        available_res.sort(key=lambda x: int(x["value"].replace("p", "")), reverse=True)
         return {
             "title": data.get("title", "Unknown"),
             "duration": data.get("duration", 0),
             "thumbnail": data.get("thumbnail", ""),
             "webpage_url": webpage_url,
             "video_id": _extract_youtube_id(webpage_url),
+            "available_resolutions": available_res,
         }
     except Exception as e:
         logger.error(f"Preview failed for {source_url}: {e}")

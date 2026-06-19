@@ -338,7 +338,7 @@
                                     <select name="layout_mode" id="layout_mode" class="text-input">
                                         <option value="auto">Auto</option>
                                         <option value="game_stream">Game Stream</option>
-                                        <option value="podcast">Podcast</option>
+                                        <option value="podcast" selected>Podcast</option>
                                         <option value="talking_head">Talking Head</option>
                                         <option value="center_crop">Center Crop</option>
                                     </select>
@@ -356,7 +356,7 @@
                                     <label for="lang">Lang</label>
                                     <select name="lang" id="lang" class="text-input">
                                         <option value="">Auto</option>
-                                        <option value="id">ID</option>
+                                        <option value="id" selected>ID</option>
                                         <option value="en">EN</option>
                                         <option value="es">ES</option>
                                     </select>
@@ -365,7 +365,7 @@
                                     <label for="caption_style">Caption</label>
                                     <select name="caption_style" id="caption_style" class="text-input">
                                         <option value="bold_pop">Bold Pop</option>
-                                        <option value="karaoke_highlight">Karaoke</option>
+                                        <option value="karaoke_highlight" selected>Karaoke</option>
                                         <option value="neon">Neon</option>
                                         <option value="minimal">Minimal</option>
                                         <option value="podcast">Podcast</option>
@@ -378,7 +378,7 @@
                                         <option value="10-15">10–15s</option>
                                         <option value="15-30">15–30s</option>
                                         <option value="30-45">30–45s</option>
-                                        <option value="45-60">45–60s</option>
+                                        <option value="45-60" selected>45–60s</option>
                                         <option value="60-90">60–90s</option>
                                     </select>
                                 </div>
@@ -584,8 +584,15 @@
         document.getElementById('timeline-fill').style.left = pctStart + '%';
         document.getElementById('timeline-fill').style.width = Math.max(pctRange, 0.5) + '%';
         document.getElementById('range-label').innerText = (end - start).toFixed(0) + 's selected';
-        document.getElementById('clip_start').value = start;
-        document.getElementById('clip_end').value = end;
+        // If range covers full video, treat as "no trim" so yt-dlp downloads
+        // the full video normally (aria2c enabled, no keyframe forcing).
+        if (start <= 0 && end >= previewDuration) {
+            document.getElementById('clip_start').value = 0;
+            document.getElementById('clip_end').value = 0;
+        } else {
+            document.getElementById('clip_start').value = start;
+            document.getElementById('clip_end').value = end;
+        }
         if (previewVideoId) {
             var iframe = document.getElementById('yt-preview');
             iframe.src = 'https://www.youtube.com/embed/' + previewVideoId + '?start=' + Math.floor(start) + '&end=' + Math.ceil(end) + '&autoplay=0&rel=0';
@@ -644,6 +651,29 @@
             if (previewVideoId) {
                 document.getElementById('preview-placeholder').style.display = 'none';
                 document.getElementById('yt-preview').style.display = 'block';
+            }
+            // Populate available resolutions from preview
+            var resSel = document.getElementById('download_resolution');
+            var currentVal = resSel.value;
+            resSel.innerHTML = '';
+            var avail = data.available_resolutions || [];
+            if (avail.length) {
+                var bestOpt = document.createElement('option');
+                bestOpt.value = 'best'; bestOpt.textContent = 'Best';
+                resSel.appendChild(bestOpt);
+                avail.forEach(function(r) {
+                    var opt = document.createElement('option');
+                    opt.value = r.value; opt.textContent = r.label;
+                    resSel.appendChild(opt);
+                });
+                resSel.value = avail.some(function(r) { return r.value === currentVal; }) ? currentVal : 'best';
+            } else {
+                ['best','2160p','1440p','1080p','720p','480p','360p'].forEach(function(v) {
+                    var opt = document.createElement('option');
+                    opt.value = v; opt.textContent = v;
+                    if (v === '1080p') opt.selected = true;
+                    resSel.appendChild(opt);
+                });
             }
             syncTimeline();
             btn.disabled = false; btn.innerText = 'Preview';

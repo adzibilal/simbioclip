@@ -163,6 +163,7 @@ def process_video_job(job_id: str) -> None:
 
         # --- Step: Moments, Content classification, Diarization (parallel) ---
         # These three are independent siblings — run them concurrently.
+        # Results are saved immediately per-step so the UI updates individually.
         needs_moments = not job.clips
         needs_classify = (
             job.layout_mode == "auto"
@@ -171,72 +172,88 @@ def process_video_job(job_id: str) -> None:
         diar_path = os.path.join(job_dir, "diarization.json")
         needs_diarize = not os.path.exists(diar_path)
 
-        with ThreadPoolExecutor(max_workers=3) as pool:
-            futures = {}
+        _STATUS_MAP = {"moments": "finding_moments", "classify": "classifying", "diarize": "diarizing"}
+        pending_parallel = set()
+        if needs_moments: pending_parallel.add("moments")
+        if needs_classify: pending_parallel.add("classify")
+        if needs_diarize: pending_parallel.add("diarize")
 
-            if needs_moments:
-                job.status = "finding_moments"
-                job.save()
-                futures["moments"] = pool.submit(detect_moments, job, segments)
+        if pending_parallel:
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                futures = {}
 
-            if needs_classify:
-                job.status = "classifying"
-                job.save()
-                futures["classify"] = pool.submit(classify_content_type, video_path, segments)
+                if needs_moments:
+                    job.status = "finding_moments"
+                    job.save()
+                    futures["moments"] = pool.submit(detect_moments, job, segments)
 
-            if needs_diarize:
-                job.status = "diarizing"
-                job.save()
-                futures["diarize"] = pool.submit(diarize_speakers, segments, job.lang)
+                if needs_classify:
+                    job.status = "classifying"
+                    job.save()
+                    futures["classify"] = pool.submit(classify_content_type, video_path, segments)
 
-            results = {}
-            # Map Future -> name so we can identify results
-            future_to_name = {v: k for k, v in futures.items()}
-            for future in as_completed(future_to_name):
-                name = future_to_name[future]
-                current_step = name
-                try:
-                    results[name] = future.result()
-                except Exception as e:
-                    raise RuntimeError(f"{name} failed: {e}")
+                if needs_diarize:
+                    job.status = "diarizing"
+                    job.save()
+                    futures["diarize"] = pool.submit(diarize_speakers, segments, job.lang)
 
-        # Save classify + diarize results FIRST (independent of moments).
-        # This ensures their artifacts are persisted even if moments fails,
-        # so a retry only needs to re-run moments instead of all three.
-        if needs_classify:
-            job.content_type = results.get("classify", "unknown")
-            logger.info(f"Content classified as: {job.content_type}")
-        elif job.layout_mode != "auto":
-            job.content_type = job.layout_mode
-            logger.info(f"Using user-selected layout: {job.layout_mode}")
-        else:
-            logger.info(f"Reusing cached classification: {job.content_type}")
+                future_to_name = {v: k for k, v in futures.items()}
+                for future in as_completed(future_to_name):
+                    name = future_to_name[future]
+                    current_step = name
+                    try:
+                        result = future.result()
+                        pending_parallel.discard(name)
+
+                        # Save individual artifact immediately so UI updates per-step
+                        if name == "classify":
+                            job.content_type = result if result else "unknown"
+                            logger.info(f"Content classified as: {job.content_type}")
+                        elif name == "diarize":
+                            if result:
+                                with open(diar_path, "w", encoding="utf-8") as f:
+                                    json.dump(result, f, indent=2)
+                        elif name == "moments":
+                            if not result:
+                                job.save()
+                                raise RuntimeError("No engaging moments were found in the transcript.")
+                            job.clips = result
+
+                        # Keep job.status as one of the still-running steps so the
+                        # pipeline_steps() method shows remaining as "running".
+                        remaining = sorted(pending_parallel)
+                        job.status = _STATUS_MAP[remaining[0]] if remaining else "moments_complete"
+                        job.save()
+                    except Exception as e:
+                        # Persist whatever was already saved before re-raising
+                        if job.content_type or os.path.exists(diar_path) or job.clips:
+                            job.save()
+                        raise RuntimeError(f"{name} failed: {e}")
+
+        # Post parallel-phase: apply user layout / load cached artifacts
+        if not needs_classify:
+            if job.layout_mode != "auto":
+                job.content_type = job.layout_mode
+                logger.info(f"Using user-selected layout: {job.layout_mode}")
+            elif not job.content_type:
+                job.content_type = "unknown"
+                logger.info(f"Using cached classification: {job.content_type}")
+            else:
+                logger.info(f"Reusing cached classification: {job.content_type}")
 
         current_step = "diarize"
-        if needs_diarize:
-            diarized = results.get("diarize")
-            if diarized:
-                with open(diar_path, "w", encoding="utf-8") as f:
-                    json.dump(diarized, f, indent=2)
-        else:
-            logger.info(f"Reusing cached diarization: {diar_path}")
+        diarized = None
+        if os.path.exists(diar_path):
             with open(diar_path, "r", encoding="utf-8") as f:
                 diarized = json.load(f)
+            logger.info(f"Reusing cached diarization: {diar_path}")
 
         if diarized:
             speakers = set(s["speaker"] for s in diarized)
             job.speaker_count = len(speakers)
             logger.info(f"Diarization: {job.speaker_count} speaker(s) detected")
 
-        # Now check moments — raise AFTER classify/diarize are already saved.
-        current_step = "moments"
-        if needs_moments:
-            clips = results.get("moments")
-            if not clips:
-                job.save()  # persist classify/diarize before failing
-                raise RuntimeError("No engaging moments were found in the transcript.")
-            job.clips = clips
-        else:
+        if not needs_moments:
             logger.info(f"Reusing {len(job.clips)} previously detected moment(s)")
 
         job.save()

@@ -2,7 +2,6 @@ import os
 import glob
 import time
 import logging
-import shutil
 import subprocess
 import threading
 import yt_dlp
@@ -11,8 +10,6 @@ from app.config import (
     COOKIES_FILE,
     COOKIES_FROM_BROWSER,
     CONCURRENT_FRAGMENTS,
-    ARIA2C_ENABLED,
-    ARIA2C_CONNECTIONS,
     THROTTLED_RATE,
 )
 
@@ -119,11 +116,6 @@ def _estimate_total_bytes(source_url: str, ydl_opts: dict, clip_start, clip_end)
         "format": ydl_opts.get("format"),
         "skip_download": True,
         "js_runtimes": {"node": {}},
-        "extractor_args": {
-            "youtube": {
-                "player_client": ["tv_embedded", "ios", "android", "web"],
-            },
-        },
     }
     if COOKIES_FILE and os.path.exists(COOKIES_FILE):
         with open(COOKIES_FILE) as _f:
@@ -190,11 +182,6 @@ def download_job_video(job: Job) -> str:
             "concurrent_fragment_downloads": CONCURRENT_FRAGMENTS,
             "throttled_rate": THROTTLED_RATE,
             "js_runtimes": {"node": {}},
-            "extractor_args": {
-                "youtube": {
-                    "player_client": ["tv_embedded", "ios", "android", "web"],
-                },
-            },
             "retry_sleep_functions": {
                 "http": lambda n: min(2 ** n, 30),
                 "fragment": lambda n: min(2 ** n, 30),
@@ -219,23 +206,8 @@ def download_job_video(job: Job) -> str:
             ydl_opts["force_keyframes_at_cuts"] = True
 
         has_range = "download_ranges" in ydl_opts
-        if ARIA2C_ENABLED and shutil.which("aria2c") and not has_range:
-            ydl_opts["external_downloader"] = "aria2c"
-            ydl_opts["external_downloader_args"] = {
-                "default": [
-                    "-x", str(ARIA2C_CONNECTIONS),
-                    "-k", "1M",
-                    "--min-split-size", "1M",
-                    "--max-connection-per-server", str(ARIA2C_CONNECTIONS),
-                    "--retry-wait", "3",
-                    "--max-tries", "20",
-                    "--console-log-level", "error",
-                ]
-            }
-            logger.info(f"Using aria2c external downloader ({ARIA2C_CONNECTIONS} connections)")
-        elif has_range:
-            logger.info("aria2c disabled for range downloads — using yt-dlp built-in downloader")
 
+        # yt-dlp native downloader with high concurrency for fragment DASH
         total_bytes = _estimate_total_bytes(job.source_url, ydl_opts, job.clip_start, job.clip_end)
         if total_bytes:
             logger.info(f"Estimated total download size: {total_bytes / (1024*1024):.1f} MB")
