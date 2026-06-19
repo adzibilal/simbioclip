@@ -153,6 +153,11 @@ def generate_ass_file(
     # fallback like CSS. A comma in the name (e.g. "Arial,Helvetica") shifts every
     # subsequent field, corrupting Fontsize/Alignment/Margins and hiding the text.
     font = style['font'].split(',')[0].strip()
+    # Lift bottom-anchored captions into the lower third instead of hugging the
+    # bottom edge. For alignment 2 (bottom-center) MarginV is measured up from the
+    # bottom of the 1920px frame, so ~500 lands the text around 74% height — clear
+    # of the very bottom but well below center.
+    margin_v = 500 if style['alignment'] == 2 else 180
     fmt = ("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
@@ -160,8 +165,7 @@ def generate_ass_file(
     sline = (f"Style: {name},{font},{style['size']},{style['color']},"
              f"&H00FFFFFF,{style['outline_col']},{style['shadow_col']},"
              f"{style['bold']},0,0,0,100,100,0,0,1,{style['outline']},"
-             f"{style['shadow']},{style['alignment']},10,10,50,1")
-    margin_v = 60 if style['alignment'] == 2 else 180
+             f"{style['shadow']},{style['alignment']},10,10,{margin_v},1")
     sline2 = (f"Style: Hook,{font},48,&H00FFFFFF,"
               f"&H00FFFFFF,&H00000000,&H80000000,"
               f"{style['bold']},0,0,0,100,100,0,0,1,2,0,8,10,10,140,1")
@@ -196,14 +200,14 @@ def generate_ass_file(
                 we = max(0.0, w["end"] - rs)
                 if we <= ws:
                     continue
-                txt = _ass_escape(w.get("word", ""))
+                txt = _ass_escape(w.get("word", "").upper())
                 lines.append(f"Dialogue: 0,{_ass_time(ws)},{_ass_time(we)},{name},,0,0,0,,{txt}")
         else:
             s = max(0.0, seg["start"] - rs)
             e = max(0.0, seg["end"] - rs)
             if e <= s:
                 continue
-            txt = _ass_escape(seg.get("text", ""))
+            txt = _ass_escape(seg.get("text", "").upper())
             lines.append(f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},{name},,0,0,0,,{txt}")
 
     content = "\n".join([
