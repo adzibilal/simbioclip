@@ -526,7 +526,7 @@ function uploadClipThumbnail(jobId, clipId, input) {
     }).then(function(html) {
         document.getElementById('job-detail-body').innerHTML = html;
         applyTabState();
-        showToast('Thumbnail set');
+        openRerenderModal(jobId, clipId);
     }).catch(function(e) {
         showToast('Error: ' + e.message, true);
     });

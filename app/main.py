@@ -548,7 +548,8 @@ async def cancel_job(job_id: str, _: str = Depends(verify_token)):
     except Exception as e:
         logger.warning(f"Failed to cancel RQ job for {job_id}: {e}")
 
-    return {"message": f"Job {job_id} cancelled"}
+    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    return HTMLResponse(html)
 
 @app.post("/jobs/{job_id}/retry")
 async def retry_job(job_id: str, _: str = Depends(verify_token)):
@@ -1492,34 +1493,6 @@ async def upload_custom_thumbnail(
     log_path = os.path.join(job_dir, "pipeline.log")
     _write_log(log_path, "INFO", "render", f"Custom thumbnail set for clip: {target.title}")
 
-    # Re-render the clip so the thumbnail overlay appears in the video
-    seg_path = os.path.join(job_dir, "segments.json")
-    if os.path.exists(seg_path):
-        source_files = glob.glob(os.path.join(job_dir, "source.*"))
-        video_path = source_files[0] if source_files else None
-        if video_path and os.path.exists(video_path):
-            with open(seg_path, "r") as f:
-                segments = json.load(f)
-            diar_path = os.path.join(job_dir, "diarization.json")
-            diarized = None
-            if os.path.exists(diar_path):
-                with open(diar_path, "r") as f:
-                    diarized = json.load(f)
-            if target.file_path and os.path.exists(target.file_path):
-                try: os.remove(target.file_path)
-                except Exception: pass
-            _write_log(log_path, "INFO", "render", f"Rerendering clip for thumbnail: {target.title}")
-            try:
-                render_one_clip(
-                    job=job, clip=target, video_path=video_path,
-                    segments=segments, diarized=diarized,
-                )
-                _write_log(log_path, "INFO", "render", f"Thumbnail rerender complete: {target.title}")
-                job.save()
-            except Exception as e:
-                _write_log(log_path, "ERROR", "render", f"Thumbnail rerender failed: {e}")
-                logger.exception(f"Thumbnail rerender failed for {clip_id}: {e}")
-
     html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
     return HTMLResponse(html)
 
@@ -1577,34 +1550,6 @@ async def remove_custom_thumbnail(
         job_dir = job.get_dir()
         log_path = os.path.join(job_dir, "pipeline.log")
         _write_log(log_path, "INFO", "render", f"Custom thumbnail removed for clip: {target.title}")
-
-        # Re-render the clip to remove the thumbnail overlay from video
-        seg_path = os.path.join(job_dir, "segments.json")
-        if os.path.exists(seg_path):
-            source_files = glob.glob(os.path.join(job_dir, "source.*"))
-            video_path = source_files[0] if source_files else None
-            if video_path and os.path.exists(video_path):
-                with open(seg_path, "r") as f:
-                    segments = json.load(f)
-                diar_path = os.path.join(job_dir, "diarization.json")
-                diarized = None
-                if os.path.exists(diar_path):
-                    with open(diar_path, "r") as f:
-                        diarized = json.load(f)
-                if target.file_path and os.path.exists(target.file_path):
-                    try: os.remove(target.file_path)
-                    except Exception: pass
-                _write_log(log_path, "INFO", "render", f"Rerendering clip after thumbnail removal: {target.title}")
-                try:
-                    render_one_clip(
-                        job=job, clip=target, video_path=video_path,
-                        segments=segments, diarized=diarized,
-                    )
-                    _write_log(log_path, "INFO", "render", f"Thumbnail-removal rerender complete: {target.title}")
-                    job.save()
-                except Exception as e:
-                    _write_log(log_path, "ERROR", "render", f"Thumbnail-removal rerender failed: {e}")
-                    logger.exception(f"Thumbnail-removal rerender failed for {clip_id}: {e}")
 
     html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
     return HTMLResponse(html)
