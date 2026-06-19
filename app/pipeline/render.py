@@ -117,8 +117,15 @@ _STYLES = {
     },
 }
 
-def _ms(sec: float) -> int:
-    return max(0, int(round(sec * 1000)))
+def _ass_time(sec: float) -> str:
+    # ASS expects H:MM:SS.cc (centiseconds), not raw milliseconds — libass
+    # rejects "Dialogue" lines with bare millisecond integers ("Bad timestamp")
+    # and silently drops the caption.
+    cs_total = int(round(max(0.0, sec) * 100))
+    h, rem = divmod(cs_total, 360000)
+    m, rem = divmod(rem, 6000)
+    s, cs = divmod(rem, 100)
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 def _ass_escape(text: str) -> str:
     return (text
@@ -142,16 +149,20 @@ def generate_ass_file(
 ):
     style = _STYLES.get(caption_style, _STYLES["bold_pop"])
     name = "CaptionStyle"
+    # ASS "Fontname" is a single CSV field — it does NOT support comma-separated
+    # fallback like CSS. A comma in the name (e.g. "Arial,Helvetica") shifts every
+    # subsequent field, corrupting Fontsize/Alignment/Margins and hiding the text.
+    font = style['font'].split(',')[0].strip()
     fmt = ("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
            "Alignment, MarginL, MarginR, MarginV, Encoding")
-    sline = (f"Style: {name},{style['font']},{style['size']},{style['color']},"
+    sline = (f"Style: {name},{font},{style['size']},{style['color']},"
              f"&H00FFFFFF,{style['outline_col']},{style['shadow_col']},"
              f"{style['bold']},0,0,0,100,100,0,0,1,{style['outline']},"
              f"{style['shadow']},{style['alignment']},10,10,50,1")
     margin_v = 60 if style['alignment'] == 2 else 180
-    sline2 = (f"Style: Hook,{style['font']},48,&H00FFFFFF,"
+    sline2 = (f"Style: Hook,{font},48,&H00FFFFFF,"
               f"&H00FFFFFF,&H00000000,&H80000000,"
               f"{style['bold']},0,0,0,100,100,0,0,1,2,0,8,10,10,140,1")
 
@@ -162,7 +173,7 @@ def generate_ass_file(
     hook = (hook_text or "").strip()
     if hook:
         dur = min(clip_end - clip_start, 2.5)
-        lines.append(f"Dialogue: 0,0:00:00.00,{_ms(dur)},Hook,,0,0,0,,{_ass_escape(hook.upper())}")
+        lines.append(f"Dialogue: 0,0:00:00.00,{_ass_time(dur)},Hook,,0,0,0,,{_ass_escape(hook.upper())}")
 
     emoji_list = emphasis or []
     for em in emoji_list:
@@ -171,8 +182,8 @@ def generate_ass_file(
         if not emoji_char:
             continue
         eta = max(0.0, et - rs)
-        start_ms = _ms(eta)
-        end_ms = _ms(eta + 1.0)
+        start_ms = _ass_time(eta)
+        end_ms = _ass_time(eta + 1.0)
         lines.append(f"Dialogue: 0,{start_ms},{end_ms},{name},,0,0,0,,{emoji_char}")
 
     target_segments = speaker_segments if speaker_segments is not None else segments
@@ -185,15 +196,15 @@ def generate_ass_file(
                 we = max(0.0, w["end"] - rs)
                 if we <= ws:
                     continue
-                txt = _ass_escape(w.get("text", ""))
-                lines.append(f"Dialogue: 0,{_ms(ws)},{_ms(we)},{name},,0,0,0,,{txt}")
+                txt = _ass_escape(w.get("word", ""))
+                lines.append(f"Dialogue: 0,{_ass_time(ws)},{_ass_time(we)},{name},,0,0,0,,{txt}")
         else:
             s = max(0.0, seg["start"] - rs)
             e = max(0.0, seg["end"] - rs)
             if e <= s:
                 continue
             txt = _ass_escape(seg.get("text", ""))
-            lines.append(f"Dialogue: 0,{_ms(s)},{_ms(e)},{name},,0,0,0,,{txt}")
+            lines.append(f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},{name},,0,0,0,,{txt}")
 
     content = "\n".join([
         "[Script Info]",
