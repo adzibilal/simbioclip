@@ -1,6 +1,7 @@
 import os
 import json
 import glob
+import re
 from datetime import datetime
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
@@ -151,6 +152,18 @@ class Job(BaseModel):
     download_downloaded_mb: Optional[float] = None
     download_total_mb: Optional[float] = None
     failed_step: Optional[str] = None
+
+    @property
+    def youtube_thumbnail(self) -> Optional[str]:
+        """Thumbnail URL of the original YouTube video, derived from source_url.
+        Returns None for non-YouTube sources (e.g. file uploads)."""
+        if not self.source_url:
+            return None
+        m = re.search(
+            r'(?:youtube\.com/watch\?.*v=|youtu\.be/|youtube\.com/embed/|youtube\.com/shorts/)([a-zA-Z0-9_-]{11})',
+            self.source_url,
+        )
+        return f"https://img.youtube.com/vi/{m.group(1)}/hqdefault.jpg" if m else None
 
     def pipeline_steps(self) -> List[Dict]:
         """Return each pipeline step annotated with its current state

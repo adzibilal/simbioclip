@@ -5,6 +5,11 @@
 <!-- ===== JOB HEADER ===== -->
 <div class="jd-header">
     <div class="jd-header-info">
+        {% if job.youtube_thumbnail %}
+        <a href="{{ job.source_url }}" target="_blank" rel="noopener" class="jd-yt-thumb" title="Open original video on YouTube">
+            <img src="{{ job.youtube_thumbnail }}" alt="Original video thumbnail" loading="lazy">
+        </a>
+        {% endif %}
         <h1 class="jd-title">{% if job.source_url %}{{ job.source_url }}{% else %}{{ job.file_name }}{% endif %}</h1>
         <div class="meta">
             <code>{{ job.id }}</code>
