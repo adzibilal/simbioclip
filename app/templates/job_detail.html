@@ -3,92 +3,157 @@
 
 {% block head_extra %}
 <style>
-    .detail-wrap { max-width: 1180px; margin: 0 auto; padding: 28px 28px 8px; }
-    .back-link { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600;
-        color: var(--slate); margin-bottom: 18px; padding: 7px 14px; border-radius: 9999px; border: 1px solid var(--hairline);
-        background: var(--canvas); transition: background .15s ease, border-color .15s ease; }
-    .back-link:hover { background: var(--surface-soft); border-color: var(--steel); }
-    .detail-head { background: var(--canvas); border: 1px solid var(--hairline); border-radius: 16px;
-        box-shadow: var(--shadow-2); padding: 24px; }
-    .detail-head .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-    .detail-head h1 { font-size: 20px; font-weight: 600; letter-spacing: -0.3px; word-break: break-all; line-height: 1.35; }
-    .detail-head .meta { font-size: 12px; color: var(--stone); margin-top: 8px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-    .detail-head .meta code { font-family: var(--font-mono); font-size: 11px; background: var(--surface-soft);
-        color: var(--slate); padding: 2px 6px; border-radius: 5px; }
-    .trim-btn { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600;
-        color: var(--slate); background: var(--surface); border: 1px solid var(--hairline); border-radius: 8px;
-        padding: 5px 10px; cursor: pointer; transition: all .15s ease; }
-    .trim-btn:hover { background: var(--surface-soft); border-color: var(--steel); color: var(--ink); }
-    .trim-slider-wrap { margin: 16px 0; }
-    .trim-slider-wrap label { font-size: 11px; font-weight: 600; color: var(--steel); display: flex; justify-content: space-between; margin-bottom: 4px; }
-    .trim-slider-wrap input[type="range"] { width: 100%; accent-color: var(--brand-green-mid); }
-    .trim-times { display: flex; justify-content: space-between; font-size: 12px; color: var(--stone); margin-top: 4px; }
-    .clip-fav { background: transparent; border: none; cursor: pointer; padding: 2px;
-        color: var(--stone); border-radius: 4px; transition: all .15s ease; display: inline-flex;
-        align-items: center; justify-content: center; line-height: 1; }
-    .clip-fav:hover { color: #e74c3c; background: rgba(231,76,60,0.08); }
-    .clip-fav.is-fav { color: #e74c3c; }
-    .clip-fav.is-fav:hover { color: var(--stone); background: transparent; }
-    .clip-edit-btn { background: transparent; border: none; cursor: pointer; opacity: 0.4; padding: 2px;
-        color: var(--stone); border-radius: 4px; transition: opacity .15s ease, background .15s ease; }
-    .clip-edit-btn:hover { opacity: 1; background: var(--surface-soft); color: var(--ink); }
-    .clip-opt-select { font-size: 11px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--hairline);
-        background: var(--canvas); color: var(--slate); flex: 1; min-width: 0; cursor: pointer; }
-    .clip-opt-select:hover { border-color: var(--steel); }
-    .clip-opt-select:disabled { opacity: 0.6; cursor: wait; }
+    /* ── Page wrapper ── */
+    .jd-wrap { padding: 24px 28px 40px; }
+    .jd-back { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600;
+        color: var(--slate); margin-bottom: 18px; padding: 7px 14px; border-radius: 9999px;
+        border: 1px solid var(--hairline); background: var(--canvas);
+        transition: background .15s, border-color .15s; }
+    .jd-back:hover { background: var(--surface-soft); border-color: var(--steel); }
 
-    .pipeline-steps { margin-top: 18px; border-top: 1px solid var(--hairline); padding-top: 16px; }
-    .pipeline-steps-head { display: flex; align-items: baseline; gap: 10px; font-size: 12px; font-weight: 700;
-        text-transform: uppercase; letter-spacing: 0.6px; color: var(--steel); margin-bottom: 10px; }
-    .pipeline-steps-hint { font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--stone); }
-    .pipeline-steps-list { display: flex; flex-direction: column; gap: 6px; }
-    .pstep { display: flex; align-items: center; gap: 11px; padding: 9px 12px; border-radius: 10px;
+    /* ── Job header ── */
+    .jd-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+        flex-wrap: wrap; background: var(--canvas); border: 1px solid var(--hairline);
+        border-radius: 14px; padding: 20px 22px; box-shadow: var(--shadow-2); margin-bottom: 16px; }
+    .jd-header-info { min-width: 0; flex: 1; }
+    .jd-title { font-size: 15px; font-weight: 600; color: var(--ink); word-break: break-all;
+        line-height: 1.4; margin-bottom: 6px; }
+    .jd-header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
+    .jd-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+
+    /* status pills for missing variants */
+    .status-diarizing { background: #FFF3DA; color: #8A5A00; }
+    .dot-diarizing { background: #8A5A00; animation: pulse 1.4s infinite; }
+    .status-moments_complete { background: #FFF3DA; color: #8A5A00; }
+    .dot-moments_complete { background: #8A5A00; animation: pulse 1.4s infinite; }
+
+    /* ── Two-column body ── */
+    .jd-body { display: grid; grid-template-columns: 240px 1fr; gap: 16px; align-items: start; }
+    @media (max-width: 900px) { .jd-body { grid-template-columns: 200px 1fr; } }
+    @media (max-width: 700px) { .jd-body { grid-template-columns: 1fr; } }
+
+    /* ── Sidebar ── */
+    .jd-sidebar { position: sticky; top: 80px; background: var(--canvas); border: 1px solid var(--hairline);
+        border-radius: 14px; padding: 16px; box-shadow: var(--shadow-1); }
+    .sidebar-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px;
+        color: var(--steel); margin-bottom: 10px; display: flex; align-items: baseline; gap: 8px; }
+    .sidebar-hint { font-size: 10px; font-weight: 500; text-transform: none; letter-spacing: 0;
+        color: var(--stone); }
+    .pipeline-steps-list { display: flex; flex-direction: column; gap: 5px; }
+    .pstep { display: flex; align-items: center; gap: 9px; padding: 8px 10px; border-radius: 9px;
         border: 1px solid var(--hairline); background: var(--canvas); }
-    .pstep-icon { width: 22px; height: 22px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center;
-        border-radius: 50%; }
-    .pstep-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--hairline-strong); }
-    .pstep-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-    .pstep-label { font-size: 13.5px; font-weight: 600; color: var(--ink); }
-    .pstep-desc { font-size: 11.5px; color: var(--stone); }
-    .pstep-retry { display: inline-flex; align-items: center; gap: 5px; flex-shrink: 0; font-size: 12px; font-weight: 600;
-        color: var(--slate); background: var(--surface-soft); border: 1px solid var(--hairline); border-radius: 8px;
-        padding: 5px 11px; cursor: pointer; transition: all .15s ease; }
-    .pstep-retry:hover { background: var(--brand-green-soft); border-color: var(--brand-green-mid); color: var(--brand-green-dark); }
-    /* state accents */
+    .pstep-icon { width: 20px; height: 20px; flex-shrink: 0; display: inline-flex; align-items: center;
+        justify-content: center; border-radius: 50%; }
+    .pstep-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--hairline-strong); }
+    .pstep-main { flex: 1; min-width: 0; }
+    .pstep-label { font-size: 12.5px; font-weight: 600; color: var(--ink); display: block; }
+    .pstep-desc { font-size: 10.5px; color: var(--stone); display: block; margin-top: 1px; }
+    .pstep-retry { background: none; border: none; cursor: pointer; padding: 4px; border-radius: 6px;
+        color: var(--stone); flex-shrink: 0; display: inline-flex; transition: color .15s, background .15s; }
+    .pstep-retry:hover { color: var(--brand-green-dark); background: var(--brand-green-soft); }
     .pstep-done .pstep-icon { background: var(--brand-green-soft); color: var(--brand-green-dark); }
     .pstep-running { border-color: var(--brand-green-mid); background: var(--surface-feature); }
     .pstep-failed { border-color: #F3B6B2; background: #FFF4F3; }
     .pstep-failed .pstep-icon { background: #FFE5E3; color: #BE342D; }
-    .pstep-pending { opacity: 0.7; }
+    .pstep-pending { opacity: 0.65; }
+
+    /* ── Main panel ── */
+    .jd-main { background: var(--canvas); border: 1px solid var(--hairline); border-radius: 14px;
+        box-shadow: var(--shadow-1); overflow: hidden; }
+
+    /* ── Tabs ── */
+    .jd-tabs-nav { display: flex; align-items: stretch; border-bottom: 1px solid var(--hairline);
+        padding: 0 4px; gap: 2px; background: var(--surface); }
+    .tab-btn { display: inline-flex; align-items: center; gap: 6px; padding: 11px 16px 9px;
+        font-size: 13px; font-weight: 600; color: var(--steel); background: none; border: none;
+        border-bottom: 2px solid transparent; margin-bottom: -1px; cursor: pointer;
+        transition: color .15s, border-color .15s; border-radius: 0; font-family: var(--font-sans); }
+    .tab-btn:hover { color: var(--ink); }
+    .tab-btn.is-active { color: var(--ink); border-bottom-color: var(--brand-green-mid); }
+    .tab-count { background: var(--brand-green-soft); color: var(--brand-green-dark);
+        font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 9999px; line-height: 1.5; }
+    .tab-panel { display: none; }
+    .tab-panel.is-active { display: block; }
+
+    /* ── Log terminal ── */
+    .log-terminal { background: #0d1117; color: #c9d1d9; font-family: var(--font-mono);
+        font-size: 11.5px; line-height: 1.65; padding: 16px; min-height: 400px;
+        max-height: 70vh; overflow-y: auto; border-radius: 0 0 14px 14px; }
+    .log-empty { color: #6e7681; font-style: italic; padding: 32px 0; text-align: center; }
+    .log-line { display: grid; grid-template-columns: 56px 36px 110px 1fr; gap: 8px;
+        padding: 1px 0; border-radius: 3px; }
+    .log-line:hover { background: rgba(255,255,255,0.03); }
+    .log-ts { color: #3fb950; font-size: 10.5px; white-space: nowrap; opacity: 0.7; }
+    .log-lvl { font-size: 10px; font-weight: 700; text-transform: uppercase;
+        white-space: nowrap; opacity: 0.9; }
+    .log-name { color: #8b949e; font-size: 10.5px; overflow: hidden; text-overflow: ellipsis;
+        white-space: nowrap; }
+    .log-msg { word-break: break-word; white-space: pre-wrap; }
+    /* level colors */
+    .lvl-DEBUG   { color: #4d8ce8; }
+    .lvl-INFO    { color: #58a6ff; }
+    .lvl-WARNING { color: #d29922; }
+    .lvl-ERROR   { color: #f85149; }
+    /* special message types */
+    .msg-llm     { color: #d2a8ff; }  /* LLM request — purple */
+    .msg-resp    { color: #56d364; }  /* LLM response — green */
+    .msg-warn    { color: #d29922; }
+    .msg-error   { color: #f85149; }
+    .msg-default { color: #c9d1d9; }
+
+    /* ── Trim modal styles ── */
+    .trim-slider-wrap { margin: 16px 0; }
+    .trim-slider-wrap label { font-size: 11px; font-weight: 600; color: var(--steel);
+        display: flex; justify-content: space-between; margin-bottom: 4px; }
+    .trim-slider-wrap input[type="range"] { width: 100%; accent-color: var(--brand-green-mid); }
+    .trim-times { display: flex; justify-content: space-between; font-size: 12px; color: var(--stone); margin-top: 4px; }
+
+    /* ── Rerender modal ── */
+    .rr-group { margin-bottom: 16px; }
+    .rr-group label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px;
+        color: var(--steel); display: block; margin-bottom: 6px; }
+    .rr-group select { width: 100%; height: 40px; padding: 0 12px; background: var(--canvas);
+        border: 1px solid var(--hairline-strong); border-radius: 8px; color: var(--ink);
+        font-family: var(--font-sans); font-size: 13px; outline: none; cursor: pointer; transition: border-color .15s; }
+    .rr-group select:focus { border-color: var(--brand-green-dark); }
+    .rr-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .rr-actions button { flex: 1; }
+    .btn-rerender { transition: all .15s; }
+    .btn-rerender:hover { background: var(--brand-green-soft) !important; border-color: var(--brand-green-mid) !important; }
+
+    /* ── Clip card ── */
+    .clip-fav { background: transparent; border: none; cursor: pointer; padding: 2px;
+        color: var(--stone); border-radius: 4px; transition: all .15s; display: inline-flex;
+        align-items: center; justify-content: center; line-height: 1; }
+    .clip-fav:hover { color: #e74c3c; background: rgba(231,76,60,0.08); }
+    .clip-fav.is-fav { color: #e74c3c; }
+    .clip-edit-btn { background: transparent; border: none; cursor: pointer; opacity: 0.4; padding: 2px;
+        color: var(--stone); border-radius: 4px; transition: opacity .15s, background .15s; }
+    .clip-edit-btn:hover { opacity: 1; background: var(--surface-soft); color: var(--ink); }
 </style>
 {% endblock %}
 
 {% block content %}
-<main class="detail-wrap">
-    <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
-        <a class="back-link" href="/">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="15 18 9 12 15 6"></polyline>
-            </svg>
-            Back to jobs
-        </a>
-        
-    </div>
+<div class="jd-wrap">
+    <a class="jd-back" href="/">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        Back to jobs
+    </a>
 
     <div id="job-detail-body">
         {% include "partials/job_detail.html" %}
     </div>
-</main>
+</div>
 
-<!-- Trim modal -->
+<!-- ── Trim modal ── -->
 <div class="modal" id="trim-modal" onclick="if(event.target===this) closeTrimModal()">
     <div class="modal-card" style="max-width:520px;">
         <div class="modal-head">
             <div>
                 <h2>Trim clip</h2>
-                <p id="trim-clip-label">Adjust the start and end times</p>
+                <p id="trim-clip-label">Adjust start and end times</p>
             </div>
-            <button class="modal-close" onclick="closeTrimModal()" title="Close">×</button>
+            <button class="modal-close" onclick="closeTrimModal()">×</button>
         </div>
         <video class="modal-video" id="trim-video" controls playsinline style="max-height:50vh;"></video>
         <div class="trim-slider-wrap">
@@ -103,11 +168,9 @@
             <span id="trim-source-range"></span>
             <span id="trim-duration"></span>
         </div>
-        <div style="display:flex; gap:10px; margin-top:16px;">
+        <div style="display:flex;gap:10px;margin-top:16px;">
             <button class="btn-primary" style="flex:1;" onclick="applyTrim()">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
-                    <polyline points="20 6 9 17 4 12"></polyline>
-                </svg>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
                 Apply trim
             </button>
             <button class="btn-secondary" onclick="closeTrimModal()">Cancel</button>
@@ -115,203 +178,351 @@
     </div>
 </div>
 
+<!-- ── Rerender modal ── -->
+<div class="modal" id="rerender-modal" onclick="if(event.target===this) closeRerenderModal()">
+    <div class="modal-card" style="max-width:400px;">
+        <div class="modal-head">
+            <div>
+                <h2>Rerender clip</h2>
+                <p>Choose layout and caption style</p>
+            </div>
+            <button class="modal-close" onclick="closeRerenderModal()">×</button>
+        </div>
+        <form id="rerender-form" onsubmit="return false;">
+            <div class="rr-group">
+                <label for="rr-layout">Layout</label>
+                <select id="rr-layout">
+                    <option value="auto">Auto</option>
+                    <option value="center_crop">Center Crop</option>
+                    <option value="talking_head">Talking Head</option>
+                    <option value="game_stream">Split Cam</option>
+                    <option value="podcast">Podcast</option>
+                    <option value="tutorial">Tutorial</option>
+                </select>
+            </div>
+            <div class="rr-group">
+                <label for="rr-caption">Caption style</label>
+                <select id="rr-caption">
+                    <option value="bold_pop">Bold Pop</option>
+                    <option value="karaoke_highlight">Karaoke</option>
+                    <option value="neon">Neon</option>
+                    <option value="minimal">Minimal</option>
+                    <option value="podcast">Podcast</option>
+                </select>
+            </div>
+            <div id="rr-progress" style="display:none;" class="rr-group">
+                <span class="rr-spinner"><span class="spinner"></span> Rendering…</span>
+            </div>
+            <div class="rr-actions">
+                <button class="btn-primary" id="rr-apply-btn" onclick="applyRerender()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                    Rerender
+                </button>
+                <button class="btn-secondary" onclick="closeRerenderModal()">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
-    let trimJobId = null, trimClipId = null, trimClipStart = 0, trimClipEnd = 0, trimClipDuration = 0;
+var JOB_ID = '{{ job.id }}';
+var API_TOKEN = '{{ api_token }}';
 
-    function openTrimModal(jobId, clipId, clipStart, clipEnd, clipDuration, videoUrl) {
-        trimJobId = jobId; trimClipId = clipId;
-        trimClipStart = clipStart; trimClipEnd = clipEnd; trimClipDuration = clipDuration;
-        document.getElementById('trim-clip-label').innerText = 'Clip: ' + clipId.slice(0,8);
-        document.getElementById('trim-source-range').innerText = 'Source: ' + clipStart.toFixed(1) + 's – ' + clipEnd.toFixed(1) + 's';
+// ──────────────────────────────────────────────
+// TABS
+// ──────────────────────────────────────────────
+var activeTab = 'content';
+
+function switchTab(tab) {
+    activeTab = tab;
+    applyTabState();
+    if (tab === 'logs') ensureLogStream();
+}
+
+function applyTabState() {
+    document.querySelectorAll('.tab-btn').forEach(function(b) {
+        b.classList.toggle('is-active', b.dataset.tab === activeTab);
+    });
+    document.querySelectorAll('.tab-panel').forEach(function(p) {
+        p.classList.toggle('is-active', p.dataset.tab === activeTab);
+    });
+    if (activeTab === 'logs') renderLogBuffer();
+}
+
+// Apply initial tab state
+applyTabState();
+
+// ──────────────────────────────────────────────
+// SSE LOG STREAMING
+// ──────────────────────────────────────────────
+var logBuffer = [];
+var logStreamActive = false;
+var logSource = null;
+
+function ensureLogStream() {
+    if (logStreamActive) return;
+    logStreamActive = true;
+    logSource = new EventSource('/api/jobs/' + JOB_ID + '/logs/stream');
+    logSource.onmessage = function(e) {
+        try {
+            var entry = JSON.parse(e.data);
+            if (entry.done) { logSource.close(); logStreamActive = false; return; }
+            logBuffer.push(entry);
+            if (activeTab === 'logs') appendLogEntry(entry, true);
+        } catch(err) {}
+    };
+    logSource.onerror = function() {
+        logStreamActive = false;
+    };
+}
+
+function renderLogBuffer() {
+    var terminal = document.getElementById('log-terminal');
+    if (!terminal) return;
+    terminal.innerHTML = '';
+    if (logBuffer.length === 0) {
+        terminal.innerHTML = '<div class="log-empty">No logs yet — start or retry the pipeline to see real-time output here.</div>';
+        return;
+    }
+    logBuffer.forEach(function(entry) { appendLogEntry(entry, false); });
+    terminal.scrollTop = terminal.scrollHeight;
+}
+
+function appendLogEntry(entry, scroll) {
+    var terminal = document.getElementById('log-terminal');
+    if (!terminal) return;
+
+    // Remove the "no logs" placeholder if present
+    var placeholder = terminal.querySelector('.log-empty');
+    if (placeholder) placeholder.remove();
+
+    var ts = new Date(entry.ts * 1000).toTimeString().slice(0, 8);
+    var level = entry.level || 'INFO';
+    var name = (entry.logger || '').replace('pipeline.', '');
+    var msg = entry.msg || '';
+
+    var isLlmReq  = msg.startsWith('[LLM]') && !msg.startsWith('[LLM_RESPONSE]');
+    var isLlmResp = msg.startsWith('[LLM_RESPONSE]') || msg.startsWith('[LLM_PROMPT]');
+    var isWarn    = level === 'WARNING';
+    var isError   = level === 'ERROR' || level === 'CRITICAL';
+
+    var lvlClass  = 'lvl-' + level;
+    var msgClass  = isLlmReq ? 'msg-llm' : isLlmResp ? 'msg-resp' : isWarn ? 'msg-warn' : isError ? 'msg-error' : 'msg-default';
+
+    var line = document.createElement('div');
+    line.className = 'log-line';
+    line.innerHTML =
+        '<span class="log-ts">' + esc(ts) + '</span>' +
+        '<span class="log-lvl ' + lvlClass + '">' + esc(level.slice(0,4)) + '</span>' +
+        '<span class="log-name">' + esc(name) + '</span>' +
+        '<span class="log-msg ' + msgClass + '">' + esc(msg) + '</span>';
+
+    terminal.appendChild(line);
+    if (scroll !== false) terminal.scrollTop = terminal.scrollHeight;
+}
+
+function esc(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// ──────────────────────────────────────────────
+// WEBSOCKET — real-time status + clips updates
+// ──────────────────────────────────────────────
+(function() {
+    var prevStatus = '{{ job.status.split(" ")[0] }}';
+    if (prevStatus === 'done' || prevStatus === 'failed' || prevStatus === 'cancelled') return;
+
+    var protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var ws = new WebSocket(protocol + '//' + location.host + '/ws/job/' + JOB_ID);
+
+    ws.onmessage = function(event) {
+        var body = document.getElementById('job-detail-body');
+        if (!body) return;
+        body.innerHTML = event.data;
+
+        // Restore tab state after DOM replacement
+        applyTabState();
+
+        // Detect transitions for browser notifications
+        var pill = document.querySelector('.status-pill');
+        if (pill) {
+            var cur = pill.textContent.trim().toLowerCase().replace(/\s+/g, '_');
+            if (prevStatus === 'downloading' && cur !== 'downloading')
+                sendNotif('Download complete', 'Source video ready for job ' + JOB_ID.slice(0,8));
+            if ((prevStatus === 'rendering' || prevStatus === 'rendered') && (cur === 'done' || cur === 'failed'))
+                sendNotif('Render ' + (cur === 'done' ? 'complete' : 'failed'),
+                    (cur === 'done' ? 'All clips rendered' : 'Rendering failed') + ' for job ' + JOB_ID.slice(0,8));
+            prevStatus = cur;
+        }
+    };
+
+    ws.onclose = function() {
+        setTimeout(function() { if (document.getElementById('job-detail-body')) location.reload(); }, 5000);
+    };
+}());
+
+// ──────────────────────────────────────────────
+// TRIM MODAL
+// ──────────────────────────────────────────────
+var trimJobId = null, trimClipId = null, trimClipStart = 0, trimClipEnd = 0, trimClipDuration = 0;
+
+function openTrimModal(jobId, clipId, clipStart, clipEnd, clipDuration, videoUrl) {
+    trimJobId = jobId; trimClipId = clipId;
+    trimClipStart = clipStart; trimClipEnd = clipEnd; trimClipDuration = clipDuration;
+    document.getElementById('trim-clip-label').innerText = 'Clip: ' + clipId.slice(0,8);
+    document.getElementById('trim-source-range').innerText = 'Source: ' + clipStart.toFixed(1) + 's – ' + clipEnd.toFixed(1) + 's';
+    var video = document.getElementById('trim-video');
+    video.src = videoUrl; video.load();
+    var ss = document.getElementById('trim-start-slider');
+    var es = document.getElementById('trim-end-slider');
+    ss.max = es.max = clipDuration;
+    ss.value = 0; es.value = clipDuration;
+    updateTrimDisplay();
+    document.getElementById('trim-modal').classList.add('open');
+    setTimeout(function() { video.play().catch(function(){}); }, 200);
+}
+
+function closeTrimModal() {
+    var video = document.getElementById('trim-video');
+    video.pause(); video.removeAttribute('src'); video.load();
+    document.getElementById('trim-modal').classList.remove('open');
+}
+
+function updateTrimDisplay(movedHandle) {
+    var ss = document.getElementById('trim-start-slider');
+    var es = document.getElementById('trim-end-slider');
+    var sv = parseFloat(ss.value), ev = parseFloat(es.value);
+    if (sv >= ev) { es.value = Math.min(ev + 0.5, parseFloat(es.max)); ev = parseFloat(es.value); }
+    document.getElementById('trim-start-val').innerText = sv.toFixed(1) + 's';
+    document.getElementById('trim-end-val').innerText   = ev.toFixed(1) + 's';
+    document.getElementById('trim-duration').innerText  = 'Trim: ' + (ev - sv).toFixed(1) + 's';
+    if (movedHandle) {
         var video = document.getElementById('trim-video');
-        video.src = videoUrl;
-        video.load();
-        var startSlider = document.getElementById('trim-start-slider');
-        var endSlider = document.getElementById('trim-end-slider');
-        startSlider.max = clipDuration;
-        endSlider.max = clipDuration;
-        startSlider.value = 0;
-        endSlider.value = clipDuration;
-        updateTrimDisplay();
-        document.getElementById('trim-modal').classList.add('open');
-        setTimeout(function() { video.play().catch(function(){}); }, 200);
+        if (video && !isNaN(video.duration)) { video.pause(); video.currentTime = movedHandle === 'end' ? ev : sv; }
     }
+}
 
-    function closeTrimModal() {
-        var video = document.getElementById('trim-video');
-        video.pause(); video.removeAttribute('src'); video.load();
-        document.getElementById('trim-modal').classList.remove('open');
-    }
+function applyTrim() {
+    var s = parseFloat(document.getElementById('trim-start-slider').value);
+    var e = parseFloat(document.getElementById('trim-end-slider').value);
+    if (s >= e) { showToast('End must be later than start', true); return; }
+    var fd = new FormData();
+    fd.append('trim_start', (trimClipStart + s).toString());
+    fd.append('trim_end',   (trimClipStart + e).toString());
+    fetch('/jobs/' + trimJobId + '/clips/' + trimClipId + '/trim', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + API_TOKEN },
+        body: fd
+    }).then(function(r) {
+        if (r.ok) return r.text();
+        throw new Error('Trim failed');
+    }).then(function(html) {
+        document.getElementById('job-detail-body').innerHTML = html;
+        applyTabState();
+        closeTrimModal();
+        showToast('Clip trimmed');
+    }).catch(function(e) { showToast('Error: ' + e.message, true); });
+}
 
-    function updateTrimDisplay(movedHandle) {
-        var startSlider = document.getElementById('trim-start-slider');
-        var endSlider = document.getElementById('trim-end-slider');
-        var startVal = parseFloat(startSlider.value);
-        var endVal = parseFloat(endSlider.value);
-        if (startVal >= endVal) {
-            endSlider.value = Math.min(endVal + 0.5, parseFloat(endSlider.max));
-            endVal = parseFloat(endSlider.value);
-        }
-        document.getElementById('trim-start-val').innerText = startVal.toFixed(1) + 's';
-        document.getElementById('trim-end-val').innerText = endVal.toFixed(1) + 's';
-        document.getElementById('trim-duration').innerText = 'Trim: ' + (endVal - startVal).toFixed(1) + 's';
-        // Live preview: scrub video to the handle the user is dragging
-        if (movedHandle) {
-            var video = document.getElementById('trim-video');
-            if (video && !isNaN(video.duration)) {
-                video.pause();
-                video.currentTime = movedHandle === 'end' ? endVal : startVal;
-            }
-        }
-    }
+// ──────────────────────────────────────────────
+// CLIP ACTIONS
+// ──────────────────────────────────────────────
+function cycleClipTitle(jobId, clipId, variants) {
+    if (!variants || variants.length < 2) return;
+    var seen = {}; seen[variants[0]] = true;
+    var next = null;
+    for (var i = 1; i < variants.length; i++) { if (!seen[variants[i]]) { next = variants[i]; break; } }
+    if (!next) return;
+    var fd = new FormData(); fd.append('title', next);
+    fetch('/jobs/' + jobId + '/clips/' + clipId + '/meta', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + API_TOKEN }, body: fd,
+    }).then(function(r) { return r.ok ? r.text() : Promise.reject(new Error('Update failed')); })
+      .then(function(html) {
+          document.getElementById('job-detail-body').innerHTML = html;
+          applyTabState();
+          showToast('Title swapped');
+      }).catch(function(e) { showToast('Error: ' + e.message, true); });
+}
 
-    function applyTrim() {
-        var start = parseFloat(document.getElementById('trim-start-slider').value);
-        var end = parseFloat(document.getElementById('trim-end-slider').value);
-        if (start >= end) { showToast('End must be later than start', true); return; }
-        var absStart = trimClipStart + start;
-        var absEnd = trimClipStart + end;
-        var formData = new FormData();
-        formData.append('trim_start', absStart.toString());
-        formData.append('trim_end', absEnd.toString());
-        fetch('/jobs/' + trimJobId + '/clips/' + trimClipId + '/trim', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer {{ api_token }}' },
-            body: formData
-        }).then(function(r) {
-            if (r.ok) return r.text();
-            throw new Error('Trim failed');
-        }).then(function(html) {
-            document.getElementById('job-detail-body').innerHTML = html;
-            closeTrimModal();
-            showToast('Clip trimmed successfully');
-        }).catch(function(e) {
-            showToast('Error: ' + e.message, true);
-        });
-    }
+function editClipField(jobId, clipId, field, currentValue) {
+    var nv = window.prompt('Edit ' + field, currentValue || '');
+    if (nv === null) return;
+    nv = nv.trim();
+    if (!nv || nv === currentValue) return;
+    var fd = new FormData(); fd.append(field, nv);
+    fetch('/jobs/' + jobId + '/clips/' + clipId + '/meta', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + API_TOKEN }, body: fd,
+    }).then(function(r) {
+        if (r.ok) return r.text();
+        throw new Error('Update failed');
+    }).then(function(html) {
+        document.getElementById('job-detail-body').innerHTML = html;
+        applyTabState();
+        showToast(field === 'title' ? 'Title updated' : 'Hook updated');
+    }).catch(function(e) { showToast('Error: ' + e.message, true); });
+}
 
-    function cycleClipTitle(jobId, clipId, variants) {
-        if (!variants || variants.length < 2) return;
-        var currentTitle = variants[0];
-        // Dedupe and skip the current title to find the next distinct variant
-        var seen = {};
-        seen[currentTitle] = true;
-        var next = null;
-        for (var i = 1; i < variants.length; i++) {
-            if (!seen[variants[i]]) { next = variants[i]; break; }
-        }
-        if (!next) return; // No distinct alternative left
-        var fd = new FormData();
-        fd.append('title', next);
-        fetch('/jobs/' + jobId + '/clips/' + clipId + '/meta', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer {{ api_token }}' },
-            body: fd,
-        }).then(function(r) { return r.ok ? r.text() : Promise.reject(new Error('Update failed')); })
-          .then(function(html) {
-              document.getElementById('job-detail-body').innerHTML = html;
-              showToast('Title swapped');
-          })
-          .catch(function(e) { showToast('Error: ' + e.message, true); });
-    }
+var rerenderJobId = null, rerenderClipId = null;
 
-    function editClipField(jobId, clipId, field, currentValue) {
-        var newValue = window.prompt('Edit ' + field, currentValue || '');
-        if (newValue === null) return;
-        newValue = newValue.trim();
-        if (!newValue || newValue === currentValue) return;
-        var fd = new FormData();
-        fd.append(field, newValue);
-        fetch('/jobs/' + jobId + '/clips/' + clipId + '/meta', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer {{ api_token }}' },
-            body: fd,
-        }).then(function(r) {
-            if (r.ok) return r.text();
-            throw new Error('Update failed');
-        }).then(function(html) {
-            document.getElementById('job-detail-body').innerHTML = html;
-            showToast(field === 'title' ? 'Title updated' : 'Hook updated');
-        }).catch(function(e) {
-            showToast('Error: ' + e.message, true);
-        });
-    }
+function openRerenderModal(jobId, clipId) {
+    rerenderJobId = jobId;
+    rerenderClipId = clipId;
+    document.getElementById('rr-progress').style.display = 'none';
+    document.getElementById('rr-apply-btn').style.display = 'inline-flex';
+    document.getElementById('rerender-modal').classList.add('open');
+}
 
-    function rerenderClipOption(jobId, clipId, field, value, selectEl) {
-        if (!confirm('Re-render this clip with the new ' + field.replace('_', ' ') + '? Existing version will be replaced.')) {
-            // Restore previous selection by re-rendering the partial later — for now just bail
-            return;
-        }
-        var fd = new FormData();
-        fd.append(field, value);
-        selectEl.disabled = true;
-        var prevText = selectEl.options[selectEl.selectedIndex].text;
-        selectEl.options[selectEl.selectedIndex].text = prevText + ' …';
-        fetch('/jobs/' + jobId + '/clips/' + clipId + '/rerender', {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer {{ api_token }}' },
-            body: fd,
-        }).then(function(r) {
-            if (r.ok) return r.text();
-            return r.text().then(function(t) { throw new Error(t || 'Rerender failed'); });
-        }).then(function(html) {
-            document.getElementById('job-detail-body').innerHTML = html;
-            showToast('Clip re-rendered');
-        }).catch(function(e) {
-            showToast('Error: ' + e.message, true);
-            selectEl.disabled = false;
-            selectEl.options[selectEl.selectedIndex].text = prevText;
-        });
-    }
+function closeRerenderModal() {
+    document.getElementById('rerender-modal').classList.remove('open');
+    rerenderJobId = null;
+    rerenderClipId = null;
+}
 
-    function retryStep(jobId, step, label) {
-        if (!confirm('Re-run from “' + label + '”?\nThis step and every step after it will be recomputed.')) return;
-        fetch('/jobs/' + jobId + '/retry/' + step, {
-            method: 'POST',
-            headers: { 'Authorization': 'Bearer {{ api_token }}' },
-        }).then(function(r) {
-            if (r.ok) return r.text();
-            return r.text().then(function(t) { throw new Error(t || 'Retry failed'); });
-        }).then(function() {
-            showToast('Re-running from ' + label + '…');
-            // Reload so the live-progress WebSocket reconnects for the re-queued job.
-            setTimeout(function() { location.reload(); }, 400);
-        }).catch(function(e) {
-            showToast('Error: ' + e.message, true);
-        });
-    }
+function applyRerender() {
+    var layout = document.getElementById('rr-layout').value;
+    var caption = document.getElementById('rr-caption').value;
+    var fd = new FormData();
+    fd.append('layout_mode', layout);
+    fd.append('caption_style', caption);
 
-    // WebSocket real-time updates with notifications
-    (function() {
-        var jobId = '{{ job.id }}';
-        var prevStatus = '{{ job.status.split(" ")[0] }}';
-        if (prevStatus === 'done' || prevStatus === 'failed' || prevStatus === 'cancelled') return;
-        var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        var ws = new WebSocket(protocol + '//' + window.location.host + '/ws/job/' + jobId);
-        ws.onmessage = function(event) {
-            var body = document.getElementById('job-detail-body');
-            if (body) body.innerHTML = event.data;
-            // Detect status transitions for notifications
-            var pill = document.querySelector('.status-pill');
-            if (pill) {
-                var curStatus = pill.textContent.trim().toLowerCase().replace(/\s+/g, '_');
-                if (prevStatus === 'downloading' && curStatus !== 'downloading') {
-                    sendNotif('Download complete', 'Source video download finished for job ' + jobId.slice(0, 8));
-                }
-                if ((prevStatus === 'rendering' || prevStatus === 'rendered') && (curStatus === 'done' || curStatus === 'failed')) {
-                    var msg = curStatus === 'done' ? 'All clips rendered successfully' : 'Rendering failed';
-                    sendNotif('Render ' + (curStatus === 'done' ? 'complete' : 'failed'), msg + ' for job ' + jobId.slice(0, 8));
-                }
-                prevStatus = curStatus;
-            }
-        };
-        ws.onclose = function() {
-            setTimeout(function() {
-                if (document.getElementById('job-detail-body')) {
-                    location.reload();
-                }
-            }, 5000);
-        };
-    })();
+    document.getElementById('rr-apply-btn').style.display = 'none';
+    document.getElementById('rr-progress').style.display = 'block';
+
+    // Switch to logs tab to show progress
+    switchTab('logs');
+    ensureLogStream();
+
+    fetch('/jobs/' + rerenderJobId + '/clips/' + rerenderClipId + '/rerender', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + API_TOKEN }, body: fd,
+    }).then(function(r) {
+        if (r.ok) return r.text();
+        return r.text().then(function(t) { throw new Error(t || 'Rerender failed'); });
+    }).then(function(html) {
+        document.getElementById('job-detail-body').innerHTML = html;
+        applyTabState();
+        closeRerenderModal();
+        showToast('Clip re-rendered');
+    }).catch(function(e) {
+        showToast('Error: ' + e.message, true);
+        closeRerenderModal();
+    });
+}
+
+function retryStep(jobId, step, label) {
+    if (!confirm('Re-run from "' + label + '"?\nThis step and every step after it will be recomputed.')) return;
+    fetch('/jobs/' + jobId + '/retry/' + step, {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + API_TOKEN },
+    }).then(function(r) {
+        if (r.ok) return r.text();
+        return r.text().then(function(t) { throw new Error(t || 'Retry failed'); });
+    }).then(function() {
+        showToast('Re-running from ' + label + '…');
+        setTimeout(function() { location.reload(); }, 400);
+    }).catch(function(e) { showToast('Error: ' + e.message, true); });
+}
 </script>
 {% endblock %}

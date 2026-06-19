@@ -12,6 +12,7 @@ from app.pipeline.moments import detect_moments
 from app.pipeline.scene_classifier import classify_content_type
 from app.pipeline.diarization import diarize_speakers
 from app.pipeline.render import render_job_clips
+from app.pipeline.job_logger import attach_job_logger, detach_job_logger
 
 logger = logging.getLogger("simbioclip.pipeline.orchestrator")
 
@@ -85,6 +86,8 @@ def reset_job_step(job: Job, step: str) -> set:
             c.file_path = None
             c.download_url = None
             c.thumbnail_url = None
+            c.layout_mode_override = None
+            c.caption_style_override = None
 
     job.error = None
     job.failed_step = None
@@ -123,8 +126,9 @@ def process_video_job(job_id: str) -> None:
     logger.info(f"Starting orchestration pipeline for job {job_id}...")
 
     current_step = "download"
+    job_dir = job.get_dir()
+    _log_handler = attach_job_logger(job_dir)
     try:
-        job_dir = job.get_dir()
         _raise_if_cancelled(job, job_dir)
 
         # --- Step: Download (reuse source.* if already on disk) ---
@@ -161,102 +165,90 @@ def process_video_job(job_id: str) -> None:
             json.dump(segments, f, indent=2)
         job.save()
 
-        # --- Step: Moments, Content classification, Diarization (parallel) ---
-        # These three are independent siblings — run them concurrently.
-        # Results are saved immediately per-step so the UI updates individually.
-        needs_moments = not job.clips
+        # --- Step: Content classification + Diarization (parallel) ---
+        # These two are independent — run them concurrently to save time.
+        # Moments detection runs AFTER both, because it benefits from having
+        # content_type and diarized speaker data for smarter chunking & prompting.
         needs_classify = (
             job.layout_mode == "auto"
             and not job.content_type
         )
         diar_path = os.path.join(job_dir, "diarization.json")
         needs_diarize = not os.path.exists(diar_path)
+        needs_moments = not job.clips
 
-        _STATUS_MAP = {"moments": "finding_moments", "classify": "classifying", "diarize": "diarizing"}
-        pending_parallel = set()
-        if needs_moments: pending_parallel.add("moments")
-        if needs_classify: pending_parallel.add("classify")
-        if needs_diarize: pending_parallel.add("diarize")
-
-        if pending_parallel:
-            with ThreadPoolExecutor(max_workers=3) as pool:
-                futures = {}
-
-                if needs_moments:
-                    job.status = "finding_moments"
-                    job.save()
-                    futures["moments"] = pool.submit(detect_moments, job, segments)
-
+        # Phase 1: classify + diarize in parallel
+        if needs_classify or needs_diarize:
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                phase1_futures = {}
                 if needs_classify:
                     job.status = "classifying"
                     job.save()
-                    futures["classify"] = pool.submit(classify_content_type, video_path, segments)
-
+                    phase1_futures["classify"] = pool.submit(classify_content_type, video_path, segments)
                 if needs_diarize:
                     job.status = "diarizing"
                     job.save()
-                    futures["diarize"] = pool.submit(diarize_speakers, segments, job.lang)
+                    phase1_futures["diarize"] = pool.submit(diarize_speakers, segments, job.lang)
 
-                future_to_name = {v: k for k, v in futures.items()}
+                future_to_name = {v: k for k, v in phase1_futures.items()}
                 for future in as_completed(future_to_name):
                     name = future_to_name[future]
                     current_step = name
                     try:
                         result = future.result()
-                        pending_parallel.discard(name)
-
-                        # Save individual artifact immediately so UI updates per-step
                         if name == "classify":
                             job.content_type = result if result else "unknown"
                             logger.info(f"Content classified as: {job.content_type}")
+                            needs_classify = False
                         elif name == "diarize":
                             if result:
                                 with open(diar_path, "w", encoding="utf-8") as f:
                                     json.dump(result, f, indent=2)
-                        elif name == "moments":
-                            if not result:
-                                job.save()
-                                raise RuntimeError("No engaging moments were found in the transcript.")
-                            job.clips = result
-
-                        # Keep job.status as one of the still-running steps so the
-                        # pipeline_steps() method shows remaining as "running".
-                        remaining = sorted(pending_parallel)
-                        job.status = _STATUS_MAP[remaining[0]] if remaining else "moments_complete"
+                            needs_diarize = False
                         job.save()
                     except Exception as e:
-                        # Persist whatever was already saved before re-raising
-                        if job.content_type or os.path.exists(diar_path) or job.clips:
+                        if job.content_type or os.path.exists(diar_path):
                             job.save()
                         raise RuntimeError(f"{name} failed: {e}")
 
-        # Post parallel-phase: apply user layout / load cached artifacts
-        if not needs_classify:
-            if job.layout_mode != "auto":
-                job.content_type = job.layout_mode
-                logger.info(f"Using user-selected layout: {job.layout_mode}")
-            elif not job.content_type:
-                job.content_type = "unknown"
-                logger.info(f"Using cached classification: {job.content_type}")
-            else:
-                logger.info(f"Reusing cached classification: {job.content_type}")
+        # Apply user layout override / cache fallback
+        if job.layout_mode != "auto":
+            job.content_type = job.layout_mode
+        elif not job.content_type:
+            job.content_type = "unknown"
 
-        current_step = "diarize"
+        # Load diarization cache (freshly written or reused from disk)
         diarized = None
         if os.path.exists(diar_path):
             with open(diar_path, "r", encoding="utf-8") as f:
                 diarized = json.load(f)
-            logger.info(f"Reusing cached diarization: {diar_path}")
-
-        if diarized:
             speakers = set(s["speaker"] for s in diarized)
             job.speaker_count = len(speakers)
             logger.info(f"Diarization: {job.speaker_count} speaker(s) detected")
 
-        if not needs_moments:
-            logger.info(f"Reusing {len(job.clips)} previously detected moment(s)")
-
         job.save()
+
+        # Phase 2: Moments detection (with content_type + diarized available)
+        if needs_moments:
+            current_step = "moments"
+            job.status = "finding_moments"
+            job.save()
+            try:
+                moments_result = detect_moments(job, segments, diarized=diarized)
+                if not moments_result:
+                    raise RuntimeError("No engaging moments were found in the transcript.")
+                job.clips = moments_result
+                job.status = "moments_complete"
+                job.save()
+                logger.info(f"Detected {len(moments_result)} moments with content_type='{job.content_type}'")
+            except Exception as e:
+                if job.clips:
+                    job.save()
+                raise RuntimeError(f"moments failed: {e}")
+        else:
+            logger.info(f"Reusing {len(job.clips)} previously detected moment(s)")
+            job.status = "moments_complete"
+            job.save()
 
         # --- Step: Render (skip clips already rendered) ---
         current_step = "render"
@@ -279,6 +271,7 @@ def process_video_job(job_id: str) -> None:
         job.failed_step = current_step
 
     finally:
+        detach_job_logger(_log_handler)
         # Keep source/segments/diarization on disk so retry can resume mid-pipeline
         # without re-downloading or re-transcribing.
         job.save()

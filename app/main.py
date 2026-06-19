@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 from typing import Optional, List
 from fastapi import FastAPI, Depends, HTTPException, Header, Query, Cookie, Form, File, UploadFile, Request, status, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from redis import Redis
@@ -134,6 +134,59 @@ async def websocket_job_updates(websocket: WebSocket, job_id: str):
             await websocket.close()
         except Exception:
             pass
+
+# SSE — real-time pipeline log streaming
+@app.get("/api/jobs/{job_id}/logs/stream")
+async def stream_job_logs(job_id: str, api_token: Optional[str] = Cookie(None)):
+    if api_token != API_TOKEN:
+        return HTMLResponse("Unauthorized", status_code=401)
+    job = Job.load(job_id)
+    if not job:
+        return HTMLResponse("Not found", status_code=404)
+
+    log_path = os.path.join(DATA_DIR, "jobs", job_id, "pipeline.log")
+
+    async def generate():
+        pos = 0
+        # Flush all existing lines first
+        if os.path.exists(log_path):
+            with open(log_path, "rb") as f:
+                data = f.read()
+                pos = len(data)
+            for line in data.decode("utf-8", errors="replace").splitlines():
+                if line.strip():
+                    yield f"data: {line}\n\n"
+
+        # Then tail for new lines until job completes
+        while True:
+            j = Job.load(job_id)
+            if os.path.exists(log_path):
+                try:
+                    with open(log_path, "rb") as f:
+                        f.seek(pos)
+                        chunk = f.read()
+                    if chunk:
+                        pos += len(chunk)
+                        for line in chunk.decode("utf-8", errors="replace").splitlines():
+                            if line.strip():
+                                yield f"data: {line}\n\n"
+                except Exception:
+                    pass
+            if j and j.status in ("done", "failed", "cancelled"):
+                yield 'data: {"done":true}\n\n'
+                break
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-store",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
 
 # Health Check API
 @app.get("/healthz")
@@ -597,6 +650,8 @@ async def rerender_job(job_id: str, _: str = Depends(verify_token)):
     for clip in job.clips:
         clip.file_path = None
         clip.download_url = None
+        clip.layout_mode_override = None
+        clip.caption_style_override = None
 
     job.save()
 
@@ -695,21 +750,46 @@ async def rerender_one_clip(
         try: os.remove(target.file_path)
         except Exception: pass
 
+    # Attach job logger so progress entries appear in the SSE log stream
+    log_path = os.path.join(job_dir, "pipeline.log")
+    _write_log(log_path, "INFO", "render", f"Rerendering clip: {target.title}")
+
     try:
+        # Build a progress callback that writes log entries
+        def _progress(pct):
+            _write_log(log_path, "INFO", "render", f"Rerender progress: {pct}%")
+
         render_one_clip(
             job=job, clip=target, video_path=video_path,
             segments=segments, diarized=diarized,
             override_layout=layout_mode if layout_mode and layout_mode != "auto" else None,
             override_caption_style=caption_style,
+            progress_callback=_progress,
         )
+        _write_log(log_path, "INFO", "render", f"Rerender complete for clip: {target.title}")
+        # Persist per-clip overrides so selection survives page refresh
+        target.layout_mode_override = layout_mode if layout_mode and layout_mode != "auto" else None
+        target.caption_style_override = caption_style
         job.save()
         logger.info(f"Per-clip rerender complete: {clip_id} (layout={layout_mode}, style={caption_style})")
     except Exception as e:
+        _write_log(log_path, "ERROR", "render", f"Rerender failed: {e}")
         logger.exception(f"Per-clip rerender failed for {clip_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Render failed: {e}")
 
     html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
     return HTMLResponse(html)
+
+
+def _write_log(log_path: str, level: str, logger_name: str, msg: str):
+    """Write a JSON log entry to the job's pipeline.log for SSE streaming."""
+    import json, time
+    try:
+        entry = json.dumps({"ts": time.time(), "level": level, "logger": logger_name, "msg": msg}, ensure_ascii=False)
+        with open(log_path, "a", encoding="utf-8") as f:
+            f.write(entry + "\n")
+    except Exception:
+        pass
 
 
 @app.post("/jobs/{job_id}/clips/{clip_id}/trim")
@@ -1334,17 +1414,28 @@ async def apply_clip_edits(
         except Exception:
             pass
 
+    log_path = os.path.join(job_dir, "pipeline.log")
+    _write_log(log_path, "INFO", "render", f"Re-rendering clip: {target.title}")
+
     try:
+        def _progress(pct):
+            _write_log(log_path, "INFO", "render", f"Rerender progress: {pct}%")
+
         render_one_clip(
             job=job, clip=target, video_path=video_path,
             segments=segments, diarized=diarized,
             override_layout=override_layout if override_layout and override_layout != "auto" else None,
             override_caption_style=override_caption_style,
+            progress_callback=_progress,
         )
+        _write_log(log_path, "INFO", "render", f"Re-render complete for clip: {target.title}")
+        target.layout_mode_override = override_layout if override_layout and override_layout != "auto" else None
+        target.caption_style_override = override_caption_style
         job.save()
         logger.info(f"Apply edits re-render complete: {clip_id}")
         return {"ok": True, "download_url": target.download_url}
     except Exception as e:
+        _write_log(log_path, "ERROR", "render", f"Re-render failed: {e}")
         logger.exception(f"Apply edits re-render failed for {clip_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Render failed: {e}")
 
