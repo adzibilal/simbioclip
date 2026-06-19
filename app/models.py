@@ -120,6 +120,7 @@ class Clip(BaseModel):
     subtitle_style: Optional[SubtitleStyleOverrides] = None
     layout_mode_override: Optional[str] = None
     caption_style_override: Optional[str] = None
+    thumbnail_image_path: Optional[str] = None
     favorite: bool = False
 
 class Job(BaseModel):

@@ -1450,6 +1450,166 @@ async def get_job_detail_page(job_id: str, request: Request, api_token: Optional
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(request, "job_detail.html", {"job": job, "api_token": API_TOKEN})
 
+UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
+
+@app.post("/api/jobs/{job_id}/clips/{clip_id}/custom-thumbnail")
+async def upload_custom_thumbnail(
+    job_id: str,
+    clip_id: str,
+    file: UploadFile = File(...),
+    _: str = Depends(verify_token),
+):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    ext = os.path.splitext(file.filename or ".png")[1].lower()
+    if ext not in UPLOAD_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported extension: {ext}")
+
+    job_dir = job.get_dir()
+    thumb_dir = os.path.join(job_dir, "custom_thumbnails")
+    os.makedirs(thumb_dir, exist_ok=True)
+    dest = os.path.join(thumb_dir, f"{clip_id}{ext}")
+
+    contents = await file.read()
+    with open(dest, "wb") as f:
+        f.write(contents)
+
+    # Remove any previously saved custom thumbnail for this clip
+    if target.thumbnail_image_path and target.thumbnail_image_path != dest:
+        try:
+            os.remove(target.thumbnail_image_path)
+        except Exception:
+            pass
+
+    target.thumbnail_image_path = dest
+    job.save()
+
+    log_path = os.path.join(job_dir, "pipeline.log")
+    _write_log(log_path, "INFO", "render", f"Custom thumbnail set for clip: {target.title}")
+
+    # Re-render the clip so the thumbnail overlay appears in the video
+    seg_path = os.path.join(job_dir, "segments.json")
+    if os.path.exists(seg_path):
+        source_files = glob.glob(os.path.join(job_dir, "source.*"))
+        video_path = source_files[0] if source_files else None
+        if video_path and os.path.exists(video_path):
+            with open(seg_path, "r") as f:
+                segments = json.load(f)
+            diar_path = os.path.join(job_dir, "diarization.json")
+            diarized = None
+            if os.path.exists(diar_path):
+                with open(diar_path, "r") as f:
+                    diarized = json.load(f)
+            if target.file_path and os.path.exists(target.file_path):
+                try: os.remove(target.file_path)
+                except Exception: pass
+            _write_log(log_path, "INFO", "render", f"Rerendering clip for thumbnail: {target.title}")
+            try:
+                render_one_clip(
+                    job=job, clip=target, video_path=video_path,
+                    segments=segments, diarized=diarized,
+                )
+                _write_log(log_path, "INFO", "render", f"Thumbnail rerender complete: {target.title}")
+                job.save()
+            except Exception as e:
+                _write_log(log_path, "ERROR", "render", f"Thumbnail rerender failed: {e}")
+                logger.exception(f"Thumbnail rerender failed for {clip_id}: {e}")
+
+    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    return HTMLResponse(html)
+
+
+@app.get("/api/jobs/{job_id}/clips/{clip_id}/custom-thumbnail-image")
+async def serve_custom_thumbnail(
+    job_id: str,
+    clip_id: str,
+    _: str = Depends(verify_token),
+):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target or not target.thumbnail_image_path:
+        raise HTTPException(status_code=404, detail="No custom thumbnail")
+
+    path = target.thumbnail_image_path
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Custom thumbnail file not found")
+
+    ext = os.path.splitext(path)[1].lower()
+    media_type = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }.get(ext, "application/octet-stream")
+
+    return FileResponse(path, media_type=media_type)
+
+
+@app.delete("/api/jobs/{job_id}/clips/{clip_id}/custom-thumbnail")
+async def remove_custom_thumbnail(
+    job_id: str,
+    clip_id: str,
+    _: str = Depends(verify_token),
+):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    if target.thumbnail_image_path:
+        try:
+            os.remove(target.thumbnail_image_path)
+        except Exception:
+            pass
+        target.thumbnail_image_path = None
+        job.save()
+
+        job_dir = job.get_dir()
+        log_path = os.path.join(job_dir, "pipeline.log")
+        _write_log(log_path, "INFO", "render", f"Custom thumbnail removed for clip: {target.title}")
+
+        # Re-render the clip to remove the thumbnail overlay from video
+        seg_path = os.path.join(job_dir, "segments.json")
+        if os.path.exists(seg_path):
+            source_files = glob.glob(os.path.join(job_dir, "source.*"))
+            video_path = source_files[0] if source_files else None
+            if video_path and os.path.exists(video_path):
+                with open(seg_path, "r") as f:
+                    segments = json.load(f)
+                diar_path = os.path.join(job_dir, "diarization.json")
+                diarized = None
+                if os.path.exists(diar_path):
+                    with open(diar_path, "r") as f:
+                        diarized = json.load(f)
+                if target.file_path and os.path.exists(target.file_path):
+                    try: os.remove(target.file_path)
+                    except Exception: pass
+                _write_log(log_path, "INFO", "render", f"Rerendering clip after thumbnail removal: {target.title}")
+                try:
+                    render_one_clip(
+                        job=job, clip=target, video_path=video_path,
+                        segments=segments, diarized=diarized,
+                    )
+                    _write_log(log_path, "INFO", "render", f"Thumbnail-removal rerender complete: {target.title}")
+                    job.save()
+                except Exception as e:
+                    _write_log(log_path, "ERROR", "render", f"Thumbnail-removal rerender failed: {e}")
+                    logger.exception(f"Thumbnail-removal rerender failed for {clip_id}: {e}")
+
+    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    return HTMLResponse(html)
+
+
 # HTMX partial routes for dashboard
 @app.get("/partials/jobs-list")
 async def get_jobs_list_partial(request: Request, api_token: Optional[str] = Cookie(None)):

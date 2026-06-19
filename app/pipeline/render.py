@@ -1,9 +1,7 @@
-import os
-import json
-import logging
-import subprocess
-from typing import List, Dict, Any, Tuple, Optional
+import json, os, subprocess, logging, math, time
+from typing import Optional, List, Tuple, Dict, Any
 from app.models import Job, Clip, ClipCropOverrides
+from app.config import DATA_DIR
 
 logger = logging.getLogger("simbioclip.pipeline.render")
 
@@ -17,457 +15,205 @@ AR_DIMS = {
     "16:9": (1920, 1080),
 }
 
-SPEAKER_COLORS = [
-    "&H00FFB347",
-    "&H0066B2FF",
-    "&H0044FF44",
-    "&H00FF6EB4",
-    "&H00FFFF44",
-    "&H00B266FF",
-    "&H00FF4444",
-    "&H0044FFFF",
-]
+CAPTION_STYLES = {"bold_pop", "neon", "minimal", "karaoke_highlight", "podcast"}
 
+# --- Geometry utilities ---
 
-# Caption style presets. Subtitle "primary" is the color of normal text; in
-# karaoke_highlight, "secondary" is the BASE color and "primary" is the color
-# that fills in word-by-word as \k tags advance.
-CAPTION_STYLES: Dict[str, Dict[str, Any]] = {
-    "bold_pop": {
-        "subtitle": {"font": "Arial", "size": 60, "primary": "&H00FFFFFF", "secondary": "&H000000FF",
-                     "outline_c": "&H00000000", "back": "&H00000000", "bold": 1,
-                     "outline": 5, "shadow": 0, "alignment": 2, "margin_v": 350},
-        "hook":     {"font": "Arial", "size": 68, "primary": "&H0000FFFF", "secondary": "&H000000FF",
-                     "outline_c": "&H00000000", "back": "&H00000000", "bold": 1,
-                     "outline": 5, "shadow": 0, "alignment": 2, "margin_v": 720,
-                     "margin_l": 40, "margin_r": 40},
-        "uppercase": True, "highlight_mode": False,
-    },
-    "neon": {
-        "subtitle": {"font": "Arial", "size": 60, "primary": "&H00FFFF00", "secondary": "&H000000FF",
-                     "outline_c": "&H00FF00FF", "back": "&H00000000", "bold": 1,
-                     "outline": 4, "shadow": 2, "alignment": 2, "margin_v": 350},
-        "hook":     {"font": "Arial", "size": 68, "primary": "&H00FF66FF", "secondary": "&H000000FF",
-                     "outline_c": "&H0000FFFF", "back": "&H00000000", "bold": 1,
-                     "outline": 5, "shadow": 2, "alignment": 2, "margin_v": 720,
-                     "margin_l": 40, "margin_r": 40},
-        "uppercase": True, "highlight_mode": False,
-    },
-    "minimal": {
-        "subtitle": {"font": "Arial", "size": 54, "primary": "&H00FFFFFF", "secondary": "&H000000FF",
-                     "outline_c": "&H80000000", "back": "&H00000000", "bold": 0,
-                     "outline": 2, "shadow": 0, "alignment": 2, "margin_v": 320},
-        "hook":     {"font": "Arial", "size": 60, "primary": "&H00FFFFFF", "secondary": "&H000000FF",
-                     "outline_c": "&H80000000", "back": "&H00000000", "bold": 1,
-                     "outline": 3, "shadow": 0, "alignment": 2, "margin_v": 720,
-                     "margin_l": 40, "margin_r": 40},
-        "uppercase": False, "highlight_mode": False,
-    },
-    "karaoke_highlight": {
-        # Text starts as `secondary` (white) and turns `primary` (yellow) as \k passes
-        "subtitle": {"font": "Arial", "size": 58, "primary": "&H0000FFFF", "secondary": "&H00FFFFFF",
-                     "outline_c": "&H00000000", "back": "&H00000000", "bold": 1,
-                     "outline": 5, "shadow": 0, "alignment": 2, "margin_v": 350},
-        "hook":     {"font": "Arial", "size": 68, "primary": "&H0000FFFF", "secondary": "&H000000FF",
-                     "outline_c": "&H00000000", "back": "&H00000000", "bold": 1,
-                     "outline": 5, "shadow": 0, "alignment": 2, "margin_v": 720,
-                     "margin_l": 40, "margin_r": 40},
-        "uppercase": True, "highlight_mode": True,
-        "phrase_max_chunks": 4, "phrase_max_chars": 30,
-    },
-    "podcast": {
-        "subtitle": {"font": "Arial", "size": 56, "primary": "&H00FFFFFF", "secondary": "&H000000FF",
-                     "outline_c": "&H00000000", "back": "&H00000000", "bold": 0,
-                     "outline": 4, "shadow": 0, "alignment": 2, "margin_v": 350},
-        "hook":     {"font": "Arial", "size": 64, "primary": "&H00FFFFFF", "secondary": "&H000000FF",
-                     "outline_c": "&H00000000", "back": "&H00000000", "bold": 1,
-                     "outline": 4, "shadow": 0, "alignment": 2, "margin_v": 720,
-                     "margin_l": 40, "margin_r": 40},
-        "uppercase": False, "highlight_mode": False,
-    },
-}
+def _even(n: float) -> int:
+    return int(n) - (int(n) % 2)
 
-
-def _resolve_caption_style(name: Optional[str]) -> Dict[str, Any]:
-    return CAPTION_STYLES.get((name or "bold_pop"), CAPTION_STYLES["bold_pop"])
-
-
-def _ass_style_line(name: str, cfg: Dict[str, Any], primary_override: Optional[str] = None) -> str:
-    """Build one V4+ Style line from a CAPTION_STYLES sub-dict."""
-    primary = primary_override or cfg["primary"]
-    margin_l = cfg.get("margin_l", 10)
-    margin_r = cfg.get("margin_r", 10)
-    return (
-        f"Style: {name},{cfg['font']},{cfg['size']},"
-        f"{primary},{cfg['secondary']},{cfg['outline_c']},{cfg.get('back', '&H00000000')},"
-        f"{cfg['bold']},0,0,0,100,100,0,0,1,"
-        f"{cfg['outline']},{cfg['shadow']},"
-        f"{cfg['alignment']},{margin_l},{margin_r},{cfg['margin_v']},1"
-    )
-
-
-def _shift_for_silence(t_abs: float, silence_ranges: List[List[float]]) -> float:
-    """Cumulative duration of silence_ranges that occur strictly before t_abs."""
-    shift = 0.0
-    for s, e in silence_ranges:
-        if e <= t_abs:
-            shift += (e - s)
-        elif s < t_abs:
-            shift += (t_abs - s)
-            break
-        else:
-            break
-    return shift
-
-
-def _group_chunks_into_phrases(
-    chunks: List[Dict[str, Any]],
-    max_chunks: int = 4,
-    max_chars: int = 30,
-    max_gap: float = 0.6,
-) -> List[List[Dict[str, Any]]]:
-    """Group consecutive word chunks into karaoke phrases (one Dialogue per phrase)."""
-    phrases: List[List[Dict[str, Any]]] = []
-    cur: List[Dict[str, Any]] = []
-    cur_chars = 0
-    for c in chunks:
-        c_text = c.get("text", "")
-        c_chars = len(c_text)
-        gap = (c["start"] - cur[-1]["end"]) if cur else 0.0
-        prospective = cur_chars + (1 if cur else 0) + c_chars
-        if cur and (len(cur) >= max_chunks or prospective > max_chars or gap > max_gap):
-            phrases.append(cur)
-            cur = [c]
-            cur_chars = c_chars
-        else:
-            cur.append(c)
-            cur_chars = prospective
-    if cur:
-        phrases.append(cur)
-    return phrases
-
+def get_video_dimensions(path: str) -> Tuple[int, int]:
+    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
+           "-show_entries", "stream=width,height", "-of", "json", path]
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    data = json.loads(r.stdout)
+    s = data["streams"][0]
+    return int(s["width"]), int(s["height"])
 
 def _get_output_dims(aspect_ratio: str) -> Tuple[int, int]:
     return AR_DIMS.get(aspect_ratio, (OUT_W, OUT_H))
 
-
-def _even(value) -> int:
-    n = int(round(value))
-    return n - (n % 2)
-
-
 def compute_crop_box(
     frame_w: int, frame_h: int, target_ar: float,
-    center_x: float, center_y: float, desired_h: float,
-    overrides: Optional["ClipCropOverrides"] = None,
+    cx: float, cy: float, desired_h: float,
+    overrides: Optional[ClipCropOverrides] = None,
 ) -> Tuple[int, int, int, int]:
+    """Returns (x, y, w, h) integer crop box centered on (cx, cy)."""
     if overrides:
-        center_x += overrides.pan_x
-        center_y += overrides.pan_y
-        if overrides.zoom > 0:
-            desired_h = desired_h / overrides.zoom
-    ch = min(float(desired_h), float(frame_h))
-    cw = ch * target_ar
-    if cw > frame_w:
-        cw = float(frame_w)
-        ch = cw / target_ar
-    x = center_x - cw / 2.0
-    y = center_y - ch / 2.0
-    x = max(0.0, min(x, frame_w - cw))
-    y = max(0.0, min(y, frame_h - ch))
-    cw_e = max(2, _even(cw))
-    ch_e = max(2, _even(ch))
-    x_e = max(0, _even(x))
-    y_e = max(0, _even(y))
-    if x_e + cw_e > frame_w:
-        x_e = max(0, _even(frame_w - cw_e))
-    if y_e + ch_e > frame_h:
-        y_e = max(0, _even(frame_h - ch_e))
-    return x_e, y_e, cw_e, ch_e
+        cx += int(overrides.pan_x)
+        cy += int(overrides.pan_y)
+        if overrides.zoom > 0 and overrides.zoom != 1.0:
+            desired_h = max(2, _even(desired_h / overrides.zoom))
+    ch = min(desired_h, frame_h)
+    cw = min(ch * target_ar, frame_w)
+    ch = _even(min(ch, frame_h))
+    cw = _even(min(cw, frame_w))
+    x = max(0, _even(cx - cw / 2.0))
+    y = max(0, _even(cy - ch / 2.0))
+    if x + cw > frame_w:
+        x = frame_w - cw
+    if y + ch > frame_h:
+        y = frame_h - ch
+    return x, y, cw, ch
 
+# --- Caption styles / ASS generation ---
 
-def get_video_dimensions(video_path: str) -> Tuple[int, int]:
-    cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0",
-           "-show_entries", "stream=width,height", "-of", "json", video_path]
-    try:
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
-        data = json.loads(result.stdout)
-        stream = data["streams"][0]
-        return int(stream["width"]), int(stream["height"])
-    except Exception as e:
-        logger.warning(f"ffprobe failed: {e}. Defaulting to 1920x1080.")
-        return 1920, 1080
+_STYLES = {
+    "bold_pop": {
+        "font": "Arial Black,Impact,Helvetica",
+        "size": 58,
+        "color": "&H00FFFFFF",
+        "bold": 1,
+        "outline_col": "&H00000000",
+        "outline": 3,
+        "shadow": 1,
+        "shadow_col": "&H80000000",
+        "alignment": 2,
+    },
+    "neon": {
+        "font": "Arial,Helvetica",
+        "size": 54,
+        "color": "&H0000FFFF",
+        "bold": 0,
+        "outline_col": "&H00FF00FF",
+        "outline": 4,
+        "shadow": 2,
+        "shadow_col": "&H80FF00FF",
+        "alignment": 2,
+    },
+    "minimal": {
+        "font": "Arial,Helvetica",
+        "size": 44,
+        "color": "&H00FFFFFF",
+        "bold": 0,
+        "outline_col": "&H00000000",
+        "outline": 1,
+        "shadow": 0,
+        "shadow_col": "&H80000000",
+        "alignment": 2,
+    },
+    "karaoke_highlight": {
+        "font": "Arial,Helvetica",
+        "size": 58,
+        "color": "&H00FFFFFF",
+        "bold": 1,
+        "outline_col": "&H00000000",
+        "outline": 3,
+        "shadow": 1,
+        "shadow_col": "&H80000000",
+        "alignment": 2,
+        "karaoke": True,
+    },
+    "podcast": {
+        "font": "Arial,Helvetica",
+        "size": 62,
+        "color": "&H00FFFFFF",
+        "bold": 1,
+        "outline_col": "&H00000000",
+        "outline": 3,
+        "shadow": 1,
+        "shadow_col": "&H80000000",
+        "alignment": 8,
+    },
+}
 
+def _ms(sec: float) -> int:
+    return max(0, int(round(sec * 1000)))
 
-def format_time_ass(seconds: float) -> str:
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    cs = int(round((seconds - int(seconds)) * 100))
-    if cs >= 100:
-        cs -= 100
-        s += 1
-    if s >= 60:
-        s -= 60
-        m += 1
-    if m >= 60:
-        m -= 60
-        h += 1
-    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
-
-
-def _word_chunks_from_segment(seg: Dict[str, Any], max_chars: int = 12) -> List[Dict[str, Any]]:
-    """
-    Yields 1-2 word subtitle chunks for karaoke-style fast captions.
-    Uses real word timestamps when available; otherwise linearly interpolates
-    over the segment so captions still flow per-word instead of per-sentence.
-    """
-    words = seg.get("words") or []
-    if not words:
-        text = (seg.get("text") or "").strip()
-        if not text:
-            return []
-        tokens = text.split()
-        if not tokens:
-            return []
-        s = float(seg.get("start", 0.0))
-        e = float(seg.get("end", 0.0))
-        dur = max(0.05, e - s)
-        per = dur / len(tokens)
-        words = [
-            {"start": s + i * per, "end": s + (i + 1) * per, "word": tk}
-            for i, tk in enumerate(tokens)
-        ]
-
-    chunks: List[Dict[str, Any]] = []
-    i = 0
-    while i < len(words):
-        w = words[i]
-        wt = (w.get("word") or "").strip()
-        if not wt:
-            i += 1
-            continue
-        if i + 1 < len(words):
-            nxt = words[i + 1]
-            nxt_t = (nxt.get("word") or "").strip()
-            combined = f"{wt} {nxt_t}".strip() if nxt_t else wt
-            if nxt_t and len(combined) <= max_chars:
-                chunks.append({
-                    "start": float(w.get("start", 0.0)),
-                    "end": float(nxt.get("end", w.get("end", 0.0))),
-                    "text": combined,
-                })
-                i += 2
-                continue
-        chunks.append({
-            "start": float(w.get("start", 0.0)),
-            "end": float(w.get("end", 0.0)),
-            "text": wt,
-        })
-        i += 1
-    return chunks
-
-
-def _speaker_at(speaker_segments: Optional[List[Dict[str, Any]]], t: float) -> Optional[str]:
-    if not speaker_segments:
-        return None
-    for s in speaker_segments:
-        if s.get("start", 0.0) <= t < s.get("end", 0.0):
-            return s.get("speaker", "UNKNOWN")
-    return None
-
+def _ass_escape(text: str) -> str:
+    return (text
+            .replace("{", "\\{")
+            .replace("}", "\\}")
+            .replace("\\n", "\\N"))
 
 def generate_ass_file(
-    segments: List[Dict[str, Any]],
-    clip_start: float, clip_end: float,
+    segments: List[Dict],
+    clip_start: float,
+    clip_end: float,
     hook_text: str,
     output_path: str,
-    speaker_segments: Optional[List[Dict[str, Any]]] = None,
-    out_w: int = OUT_W, out_h: int = OUT_H,
+    speaker_segments: Optional[List[Dict]] = None,
+    out_w: int = OUT_W,
+    out_h: int = OUT_H,
     render_start: Optional[float] = None,
     caption_style: str = "bold_pop",
     silence_ranges_in_clip: Optional[List[List[float]]] = None,
-    emphasis: Optional[List[Dict[str, Any]]] = None,
-    hook_animate: bool = True,
-) -> None:
-    base = render_start if render_start is not None else clip_start
-    style_cfg = _resolve_caption_style(caption_style)
-    sub_cfg = style_cfg["subtitle"]
-    hook_cfg = style_cfg["hook"]
-    uppercase = bool(style_cfg.get("uppercase"))
-    highlight_mode = bool(style_cfg.get("highlight_mode"))
-    silences = silence_ranges_in_clip or []
+    emphasis: Optional[List[Dict]] = None,
+):
+    style = _STYLES.get(caption_style, _STYLES["bold_pop"])
+    name = "CaptionStyle"
+    fmt = ("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
+           "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
+           "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
+           "Alignment, MarginL, MarginR, MarginV, Encoding")
+    sline = (f"Style: {name},{style['font']},{style['size']},{style['color']},"
+             f"&H00FFFFFF,{style['outline_col']},{style['shadow_col']},"
+             f"{style['bold']},0,0,0,100,100,0,0,1,{style['outline']},"
+             f"{style['shadow']},{style['alignment']},10,10,50,1")
+    margin_v = 60 if style['alignment'] == 2 else 180
+    sline2 = (f"Style: Hook,{style['font']},48,&H00FFFFFF,"
+              f"&H00FFFFFF,&H00000000,&H80000000,"
+              f"{style['bold']},0,0,0,100,100,0,0,1,2,0,8,10,10,140,1")
 
-    def rel_t(t_abs: float) -> float:
-        """Convert absolute video time to clip-relative time post-silence-skip."""
-        raw = t_abs - base
-        if raw <= 0:
-            return 0.0
-        return max(0.0, raw - _shift_for_silence(t_abs, silences))
+    rs = render_start if render_start is not None else clip_start
 
-    # Emoji style: top-right corner, large, no outline. NotoColorEmoji is the
-    # font name when fonts-noto-color-emoji is installed (see Dockerfile).
-    emoji_cfg = {
-        "font": "Noto Color Emoji", "size": 140,
-        "primary": "&H00FFFFFF", "secondary": "&H000000FF",
-        "outline_c": "&H00000000", "back": "&H00000000",
-        "bold": 0, "outline": 0, "shadow": 0,
-        "alignment": 9,  # top-right
-        "margin_v": 60, "margin_l": 40, "margin_r": 40,
-    }
+    # --- Build section lines ---
+    lines = []
+    hook = (hook_text or "").strip()
+    if hook:
+        dur = min(clip_end - clip_start, 2.5)
+        lines.append(f"Dialogue: 0,0:00:00.00,{_ms(dur)},Hook,,0,0,0,,{_ass_escape(hook.upper())}")
 
-    lines = [
+    emoji_list = emphasis or []
+    for em in emoji_list:
+        et = em.get("t", 0)
+        emoji_char = em.get("emoji", "")
+        if not emoji_char:
+            continue
+        eta = max(0.0, et - rs)
+        start_ms = _ms(eta)
+        end_ms = _ms(eta + 1.0)
+        lines.append(f"Dialogue: 0,{start_ms},{end_ms},{name},,0,0,0,,{emoji_char}")
+
+    target_segments = speaker_segments if speaker_segments is not None else segments
+    karaoke = style.get("karaoke", False)
+
+    for seg in target_segments:
+        if "words" in seg and seg["words"] and karaoke:
+            for w in seg["words"]:
+                ws = max(0.0, w["start"] - rs)
+                we = max(0.0, w["end"] - rs)
+                if we <= ws:
+                    continue
+                txt = _ass_escape(w.get("text", ""))
+                lines.append(f"Dialogue: 0,{_ms(ws)},{_ms(we)},{name},,0,0,0,,{txt}")
+        else:
+            s = max(0.0, seg["start"] - rs)
+            e = max(0.0, seg["end"] - rs)
+            if e <= s:
+                continue
+            txt = _ass_escape(seg.get("text", ""))
+            lines.append(f"Dialogue: 0,{_ms(s)},{_ms(e)},{name},,0,0,0,,{txt}")
+
+    content = "\n".join([
         "[Script Info]",
         "ScriptType: v4.00+",
-        f"PlayResX: {out_w}",
-        f"PlayResY: {out_h}",
-        "ScaledBorderAndShadow: yes",
+        "PlayResX: 1080",
+        "PlayResY: 1920",
         "",
         "[V4+ Styles]",
-        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        _ass_style_line("SubtitleStyle", sub_cfg),
-        _ass_style_line("HookStyle", hook_cfg),
-        _ass_style_line("EmojiStyle", emoji_cfg),
-    ]
-
-    # Per-speaker styles override only the primary color of the subtitle style.
-    # In karaoke_highlight mode, this becomes the "fill" color words turn into.
-    speaker_styles: Dict[str, str] = {}
-    if speaker_segments:
-        seen: Dict[str, str] = {}
-        for s in speaker_segments:
-            sp = s.get("speaker", "UNKNOWN")
-            if sp not in seen:
-                idx = len(seen) % len(SPEAKER_COLORS)
-                seen[sp] = SPEAKER_COLORS[idx]
-                style_name = f"Spkr{idx}"
-                lines.append(_ass_style_line(style_name, sub_cfg, primary_override=SPEAKER_COLORS[idx]))
-                speaker_styles[sp] = style_name
-
-    lines.extend(["", "[Events]", "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text"])
-
-    # Hook overlay: short, sits in lower-middle area above the subtitle line.
-    if hook_text:
-        hook_max = min(2.0, clip_end - clip_start)
-        hook_min = min(1.2, hook_max)
-        hook_duration = max(hook_min, min(hook_max, 0.06 * len(hook_text)))
-        if hook_duration > 0.4:
-            sanitized = hook_text.replace("{", "").replace("}", "").replace(chr(34), "").replace(chr(39), "")
-            if uppercase:
-                sanitized = sanitized.upper()
-            # Scale-pop in (120%→100% in 280ms) then settle. Disabled for minimal style.
-            anim_prefix = ""
-            if hook_animate and caption_style != "minimal":
-                anim_prefix = "{\\fscx120\\fscy120\\t(0,280,\\fscx100\\fscy100)}"
-            lines.append(
-                f"Dialogue: 1,{format_time_ass(0.0)},{format_time_ass(hook_duration)},HookStyle,,0,0,0,,{anim_prefix}{sanitized}"
-            )
-
-    # Emphasis emoji overlays: appear briefly at moments of surprise/punchline.
-    # Position alternates left/right corner so multiple don't pile up.
-    if emphasis:
-        for i, e in enumerate(emphasis):
-            try:
-                t_abs = float(e.get("t", -1))
-            except (TypeError, ValueError):
-                continue
-            emoji = str(e.get("emoji", "")).strip()
-            if not emoji or t_abs < clip_start or t_abs > clip_end:
-                continue
-            rs = rel_t(t_abs)
-            re_ = rel_t(t_abs + 1.0)
-            if re_ - rs < 0.2:
-                continue
-            # Alternate corners: even index → top-right (default), odd → top-left
-            pos_tag = ""
-            if i % 2 == 1:
-                # Shift to top-left by setting alignment override + position
-                pos_tag = "{\\an7}"
-            # Pop animation: scale 60% → 110% in 200ms, then 110% → 100% in 150ms
-            anim = "{\\fscx60\\fscy60\\t(0,200,\\fscx110\\fscy110)\\t(200,350,\\fscx100\\fscy100)}"
-            lines.append(
-                f"Dialogue: 2,{format_time_ass(rs)},{format_time_ass(re_)},EmojiStyle,,0,0,0,,{pos_tag}{anim}{emoji}"
-            )
-
-    def _format_word_text(t: str) -> str:
-        t = t.strip().replace("{", "").replace("}", "")
-        return t.upper() if uppercase else t
-
-    def _resolve_style_for_time(t_mid: float) -> Optional[str]:
-        """Returns the style name to use, or None if word should be skipped (active speaker mode)."""
-        if speaker_segments is None:
-            return "SubtitleStyle"
-        sp = _speaker_at(speaker_segments, t_mid)
-        if sp is None:
-            return None
-        return speaker_styles.get(sp, "SubtitleStyle")
-
-    if highlight_mode:
-        # Karaoke phrases — group word chunks per segment, emit one Dialogue per phrase
-        # with \k tags per chunk for word-by-word color fill.
-        max_chunks = int(style_cfg.get("phrase_max_chunks", 4))
-        max_chars = int(style_cfg.get("phrase_max_chars", 30))
-        for seg in segments:
-            seg_start = float(seg.get("start", 0.0))
-            seg_end = float(seg.get("end", 0.0))
-            if seg_end <= clip_start or seg_start >= clip_end:
-                continue
-            seg_chunks = [
-                c for c in _word_chunks_from_segment(seg)
-                if c["end"] > clip_start and c["start"] < clip_end
-            ]
-            if not seg_chunks:
-                continue
-            for phrase in _group_chunks_into_phrases(seg_chunks, max_chunks=max_chunks, max_chars=max_chars):
-                p_start = phrase[0]["start"]
-                p_end = phrase[-1]["end"]
-                rs = rel_t(p_start)
-                re_ = rel_t(p_end)
-                if re_ - rs < 0.05:
-                    continue
-                style = _resolve_style_for_time((p_start + p_end) / 2.0)
-                if style is None:
-                    continue
-                parts = []
-                for c in phrase:
-                    k_cs = max(1, int(round((c["end"] - c["start"]) * 100)))
-                    parts.append(f"{{\\k{k_cs}}}{_format_word_text(c['text'])}")
-                karaoke_text = " ".join(parts)
-                lines.append(
-                    f"Dialogue: 0,{format_time_ass(rs)},{format_time_ass(re_)},{style},,0,0,0,,{karaoke_text}"
-                )
-    else:
-        # Per-chunk emission (1-2 word pops, one Dialogue each)
-        for seg in segments:
-            seg_start = float(seg.get("start", 0.0))
-            seg_end = float(seg.get("end", 0.0))
-            if seg_end <= clip_start or seg_start >= clip_end:
-                continue
-            for chunk in _word_chunks_from_segment(seg):
-                c_start = chunk["start"]
-                c_end = chunk["end"]
-                if c_end <= clip_start or c_start >= clip_end:
-                    continue
-                rs = rel_t(c_start)
-                re_ = rel_t(c_end)
-                if re_ - rs < 0.05:
-                    continue
-                text = _format_word_text(chunk["text"])
-                if not text:
-                    continue
-                style = _resolve_style_for_time((c_start + c_end) / 2.0)
-                if style is None:
-                    continue
-                lines.append(
-                    f"Dialogue: 0,{format_time_ass(rs)},{format_time_ass(re_)},{style},,0,0,0,,{text}"
-                )
+        fmt,
+        sline,
+        sline2,
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ] + lines)
 
     with open(output_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
-    logger.info(f"Generated ASS [{caption_style}]: {output_path}")
+        f.write(content)
 
-
-# --- Filter builders ---
+# --- Layout filter builders ---
 
 def build_split_cam_filter(face_box: Tuple[int, int, int, int], w: int, h: int,
                            facecam_panel_h: int, gameplay_panel_h: int,
@@ -482,7 +228,6 @@ def build_split_cam_filter(face_box: Tuple[int, int, int, int], w: int, h: int,
             f"[t_raw]crop={cam_w}:{cam_h}:{cam_x}:{cam_y},scale={out_w}:{facecam_panel_h},setsar=1[top];"
             f"[b_raw]crop={gp_w}:{gp_h}:{gp_x}:{gp_y},scale={out_w}:{gameplay_panel_h},setsar=1[bottom];"
             f"[top][bottom]vstack=inputs=2,ass='{escaped_ass}'")
-
 
 def build_center_crop_filter(w: int, h: int, crop_w: int, crop_h: int,
                              escaped_ass: str, out_w: int = OUT_W, out_h: int = OUT_H,
@@ -501,7 +246,6 @@ def build_center_crop_filter(w: int, h: int, crop_w: int, crop_h: int,
         cy = max(0, min(cy, h - crop_h))
     return f"crop={crop_w}:{crop_h}:{cx}:{cy},scale={out_w}:{out_h},setsar=1,ass='{escaped_ass}'"
 
-
 def build_inset_filter(face_box: Tuple[int,int,int,int], w: int, h: int,
                        inset_w: int, inset_h: int, inset_position: str,
                        facecam_scale: float, escaped_ass: str,
@@ -517,10 +261,8 @@ def build_inset_filter(face_box: Tuple[int,int,int,int], w: int, h: int,
             f"[inset_raw]crop={iw_h}:{ih}:{ix}:{iy},scale={inset_w}:{inset_h},setsar=1[inset];"
             f"[main][inset]overlay={ox}:{oy},ass='{escaped_ass}'")
 
-
 def build_passthrough_filter(escaped_ass: str, out_w: int = OUT_W, out_h: int = OUT_H) -> str:
     return f"scale={out_w}:{out_h},setsar=1,ass='{escaped_ass}'"
-
 
 def build_face_track_filter(face_box: Tuple[int,int,int,int], w: int, h: int,
                             facecam_scale: float, escaped_ass: str,
@@ -531,13 +273,7 @@ def build_face_track_filter(face_box: Tuple[int,int,int,int], w: int, h: int,
     cx, cy, cw_val, ch_val = compute_crop_box(w, h, out_w / out_h, fcx, fcy, fh * facecam_scale, overrides)
     return f"crop={cw_val}:{ch_val}:{cx}:{cy},scale={out_w}:{out_h},setsar=1,ass='{escaped_ass}'"
 
-
 def _build_polyline_expr(points: List[Tuple[float, float]]) -> str:
-    """
-    Builds an ffmpeg expression evaluating a piecewise-linear function of `t`
-    over the given (t, value) knots. Before the first knot returns value0;
-    after the last knot returns valueN-1.
-    """
     if not points:
         return "0"
     if len(points) == 1:
@@ -554,7 +290,6 @@ def _build_polyline_expr(points: List[Tuple[float, float]]) -> str:
     parts.append(")" * len(points))
     return "".join(parts)
 
-
 def build_dynamic_face_track_filter(
     trajectory: List[Tuple[float, int, int, int, int]],
     w: int, h: int, facecam_scale: float,
@@ -562,17 +297,8 @@ def build_dynamic_face_track_filter(
     out_w: int = OUT_W, out_h: int = OUT_H,
     overrides: Optional[ClipCropOverrides] = None,
 ) -> Optional[str]:
-    """
-    Builds a face-track filter where the crop window follows the subject across
-    sampled positions instead of staying static. Returns None if the trajectory
-    is unusable (too few points or degenerate boxes), so the caller can fall
-    back to the static box.
-    """
     if not trajectory or len(trajectory) < 2:
         return None
-
-    # Compute a crop box per sample. Crop dimensions are fixed (median) so the
-    # output frame size is stable; only x and y vary over time.
     target_ar = out_w / out_h
     crops = []
     for t_abs, fx, fy, fw, fh in trajectory:
@@ -580,7 +306,6 @@ def build_dynamic_face_track_filter(
         desired_h = fh * facecam_scale
         cx, cy, cw, ch = compute_crop_box(w, h, target_ar, fcx, fcy, desired_h, overrides)
         crops.append((t_abs, cx, cy, cw, ch))
-
     cws = sorted(c[3] for c in crops)
     chs = sorted(c[4] for c in crops)
     median_cw = cws[len(cws) // 2]
@@ -589,9 +314,6 @@ def build_dynamic_face_track_filter(
         return None
     median_cw -= median_cw % 2
     median_ch -= median_ch % 2
-
-    # Recompute x, y for each knot using median dimensions so the framing is
-    # consistent. Clamp into valid bounds.
     knots_x: List[Tuple[float, float]] = []
     knots_y: List[Tuple[float, float]] = []
     offset_x = overrides.pan_x if overrides else 0.0
@@ -602,18 +324,15 @@ def build_dynamic_face_track_filter(
         fcy = fy + fh / 2.0 + offset_y
         x = max(0.0, min(w - median_cw, fcx - median_cw / 2.0))
         y = max(0.0, min(h - median_ch, fcy - median_ch / 2.0))
-        # Use clip-relative time (ffmpeg's t after pre-seek starts at 0)
         t_rel = max(0.0, t_abs - render_start)
         knots_x.append((t_rel, x))
         knots_y.append((t_rel, y))
-
     x_expr = _build_polyline_expr(knots_x)
     y_expr = _build_polyline_expr(knots_y)
     return (
         f"crop={median_cw}:{median_ch}:'{x_expr}':'{y_expr}',"
         f"scale={out_w}:{out_h},setsar=1,ass='{escaped_ass}'"
     )
-
 
 def build_podcast_dual_filter(face_boxes: List[Tuple[int,int,int,int]],
                               panel_w: int, w: int, h: int, facecam_scale: float,
@@ -633,23 +352,15 @@ def build_podcast_dual_filter(face_boxes: List[Tuple[int,int,int,int]],
     parts.append(f"{stack_in}hstack=inputs={n},ass='{escaped_ass}'")
     return ";".join(parts)
 
-
 def build_podcast_stack_filter(face_boxes: List[Tuple[int,int,int,int]],
                                w: int, h: int, facecam_scale: float,
                                escaped_ass: str, out_w: int = OUT_W, out_h: int = OUT_H) -> str:
-    """
-    Stack speaker crops top-to-bottom (vstack). Each panel is out_w wide and
-    ~out_h/n tall, so a face fills the frame naturally instead of being squeezed
-    into a thin side-by-side strip. Panel heights sum to exactly out_h (any
-    rounding remainder is absorbed by the last panel).
-    """
     n = len(face_boxes)
     base_h = out_h // n
     base_h -= base_h % 2
     panel_hs = [base_h] * n
-    panel_hs[-1] = out_h - base_h * (n - 1)  # absorb rounding into the last panel
+    panel_hs[-1] = out_h - base_h * (n - 1)
     panel_hs[-1] -= panel_hs[-1] % 2
-
     labels = [chr(ord("a") + i) for i in range(n)]
     split_out = "".join(f"[{l}_raw]" for l in labels)
     parts = [f"[0:v]split={n}{split_out}"]
@@ -664,7 +375,6 @@ def build_podcast_stack_filter(face_boxes: List[Tuple[int,int,int,int]],
     parts.append(f"{stack_in}vstack=inputs={n},ass='{escaped_ass}'")
     return ";".join(parts)
 
-
 # --- Rendering ---
 
 def _build_silence_skip_filter_complex(
@@ -672,23 +382,50 @@ def _build_silence_skip_filter_complex(
     silence_rel: List[List[float]],
     audio_filters: List[str],
 ) -> Tuple[str, str, str]:
-    """
-    Wraps the existing layout video-filter string into a -filter_complex graph
-    that also skips silence ranges (in clip-relative seconds) on both video and
-    audio streams. Returns (filter_complex, video_out_label, audio_out_label).
-    """
     range_expr = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in silence_rel)
     v_select = f"select='not({range_expr})',setpts=N/FRAME_RATE/TB"
     a_select = f"aselect='not({range_expr})',asetpts=N/SR/TB"
-
     if layout_vf.startswith("[0:v]"):
         layout_v = layout_vf.replace("[0:v]", f"[0:v]{v_select},", 1) + "[vout]"
     else:
         layout_v = f"[0:v]{v_select},{layout_vf}[vout]"
-
     a_chain = ",".join([a_select] + list(audio_filters))
     audio_v = f"[0:a]{a_chain}[aout]"
     return f"{layout_v};{audio_v}", "[vout]", "[aout]"
+
+
+def _apply_thumbnail_overlay(
+    video_path: str,
+    thumbnail_path: str,
+    out_w: int,
+    out_h: int,
+    duration: float,
+) -> None:
+    """Overlay thumbnail image at the beginning of the video (first 0.1s)."""
+    tmp_path = video_path + ".thumb_tmp.mp4"
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-i", video_path,
+        "-i", thumbnail_path,
+        "-filter_complex",
+        f"[1:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,"
+        f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:color=black[thumb];"
+        f"[0:v][thumb]overlay=0:0:enable='lte(t,0.1)'",
+        "-c:v", "libx264", "-preset", "superfast", "-crf", "22",
+        "-c:a", "copy",
+        "-y", tmp_path,
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=300)
+        os.replace(tmp_path, video_path)
+        logger.info(f"Thumbnail overlay applied to {video_path}")
+    except subprocess.CalledProcessError as e:
+        stderr = (e.stderr or b"").decode(errors="ignore")[:500]
+        logger.error(f"Thumbnail overlay failed for {video_path}: {stderr}")
+        if os.path.exists(tmp_path):
+            try: os.remove(tmp_path)
+            except: pass
+        raise
 
 
 def render_clip_ffmpeg(
@@ -705,6 +442,7 @@ def render_clip_ffmpeg(
     silence_ranges: Optional[List[List[float]]] = None,
     dense_cut: bool = False,
     crop_overrides: Optional[ClipCropOverrides] = None,
+    thumbnail_overlay_path: Optional[str] = None,
 ) -> str:
     out_w, out_h = _get_output_dims(aspect_ratio)
     clips_dir = os.path.join(job_dir, "clips")
@@ -720,7 +458,6 @@ def render_clip_ffmpeg(
     elif trim_end is not None:
         render_duration = trim_end - clip.start
 
-    # Filter silence ranges to those overlapping this render window.
     silence_abs: List[List[float]] = []
     silence_rel: List[List[float]] = []
     if dense_cut and silence_ranges:
@@ -783,7 +520,6 @@ def render_clip_ffmpeg(
     elif lt == "face_track" and layout_params.get("face_box"):
         fb = layout_params["face_box"]
         facecam_scale = layout_params.get("facecam_scale", 2.5)
-        # Try dynamic face tracking first; fall back to static box on failure.
         vf = None
         try:
             from app.pipeline.face_detect import detect_face_trajectory
@@ -814,8 +550,6 @@ def render_clip_ffmpeg(
 
     audio_filters = ["loudnorm=I=-16:TP=-1.5:LRA=11"]
     if audio_ducking:
-        # No-op until BG music is added in a future phase. Kept as a stub so the
-        # flag and form field stay backwards-compatible.
         logger.info("audio_ducking flag is currently a no-op (requires BG music track).")
 
     cmd = ["ffmpeg", "-y", "-progress", "pipe:1", "-nostats",
@@ -832,34 +566,47 @@ def render_clip_ffmpeg(
                 "-c:a", "aac", "-b:a", "192k"])
     cmd.append(output_path)
 
+    stderr_path = os.path.join(job_dir, "clips", f"{clip.id}_ffmpeg_stderr.log")
     try:
-        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        last_pct = 0
-        for line in proc.stdout:
-            if line.startswith("out_time_us="):
-                try:
-                    us = int(line.strip().split("=")[1])
-                    pct = min(int(us / 1_000_000 / render_duration * 100), 99)
-                    if pct > last_pct:
-                        last_pct = pct
-                        if progress_callback:
-                            progress_callback(pct)
-                except (ValueError, IndexError):
-                    pass
-        proc.wait()
+        with open(stderr_path, "w") as stderr_file:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=stderr_file, text=True)
+            last_pct = 0
+            for line in proc.stdout:
+                if line.startswith("out_time_us="):
+                    try:
+                        us = int(line.strip().split("=")[1])
+                        pct = min(int(us / 1_000_000 / render_duration * 100), 99)
+                        if pct > last_pct:
+                            last_pct = pct
+                            if progress_callback:
+                                progress_callback(pct)
+                    except (ValueError, IndexError):
+                        pass
+            proc.wait()
         if proc.returncode != 0:
-            stderr_out = proc.stderr.read() if proc.stderr else ""
-            logger.error(f"FFmpeg exit {proc.returncode} for {clip.id}: {stderr_out[:300]}")
-            raise RuntimeError(f"FFmpeg exited with code {proc.returncode}")
+            with open(stderr_path, "r") as f:
+                stderr_out = f.read()
+            logger.error(f"FFmpeg exit {proc.returncode} for {clip.id}: {stderr_out}")
+            raise RuntimeError(f"FFmpeg exited with code {proc.returncode} (see stderr above)")
     except RuntimeError:
         raise
     except Exception as e:
         logger.error(f"FFmpeg render failed for {clip.id}: {e}")
         raise RuntimeError(f"FFmpeg render failed: {e}")
+    finally:
+        try: os.remove(stderr_path)
+        except: pass
 
     if os.path.exists(ass_path):
         try: os.remove(ass_path)
         except: pass
+
+    # Apply thumbnail overlay after main render (2-pass approach)
+    if thumbnail_overlay_path and os.path.exists(thumbnail_overlay_path):
+        try:
+            _apply_thumbnail_overlay(output_path, thumbnail_overlay_path, out_w, out_h, render_duration)
+        except Exception as e:
+            logger.warning(f"Thumbnail overlay skipped for {clip.id}: {e}")
 
     # Auto-generate thumbnail (best-effort; never fails the render)
     try:
@@ -897,17 +644,9 @@ def _group_speaker_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, An
             groups.append({"speaker": cur_sp, "segments": cur})
             cur_sp = sp
             cur = [seg]
-    groups.append({"speaker": cur_sp, "segments": cur})
-
-    # Merge groups < 2s with previous
-    merged = []
-    for g in groups:
-        dur = g["segments"][-1]["end"] - g["segments"][0]["start"]
-        if dur < 2.0 and merged:
-            merged[-1]["segments"].extend(g["segments"])
-        else:
-            merged.append(g)
-    return merged
+    if cur:
+        groups.append({"speaker": cur_sp, "segments": cur})
+    return groups
 
 
 def render_active_speaker_clip(
@@ -919,6 +658,7 @@ def render_active_speaker_clip(
     progress_callback,
     caption_style: str = "bold_pop",
     crop_overrides: Optional[ClipCropOverrides] = None,
+    thumbnail_overlay_path: Optional[str] = None,
 ) -> str:
     from app.pipeline.face_detect import detect_face_camera
     from app.pipeline.layout_engine import get_layout_params
@@ -929,6 +669,7 @@ def render_active_speaker_clip(
     sub_paths = []
     speaker_face_cache = {}
     total_sub = len(groups)
+    out_w, out_h = _get_output_dims(aspect_ratio)
 
     for idx, group in enumerate(groups):
         sp = group["speaker"]
@@ -959,7 +700,6 @@ def render_active_speaker_clip(
         sub_path = os.path.join(clips_dir, f"{sub_id}.mp4")
         sub_duration = g_end - g_start
 
-        out_w, out_h = _get_output_dims(aspect_ratio)
         ass_path = os.path.join(clips_dir, f"{sub_id}.ass")
         generate_ass_file(
             segments, clip.start, clip.end, clip.hook, ass_path,
@@ -979,10 +719,10 @@ def render_active_speaker_clip(
 
         cmd = ["ffmpeg", "-y", "-progress", "pipe:1", "-nostats",
                "-ss", f"{g_start:.3f}", "-t", f"{sub_duration:.3f}",
-               "-i", video_path, "-vf", vf,
-               "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
-               "-c:v", "libx264", "-preset", "superfast", "-crf", "22",
-               "-c:a", "aac", "-b:a", "192k"]
+               "-i", video_path]
+        cmd.extend(["-vf", vf, "-af", "loudnorm=I=-16:TP=-1.5:LRA=11"])
+        cmd.extend(["-c:v", "libx264", "-preset", "superfast", "-crf", "22",
+                    "-c:a", "aac", "-b:a", "192k"])
         if audio_ducking:
             logger.debug("audio_ducking no-op in active speaker render (no BG music yet)")
         cmd.append(sub_path)
@@ -1009,7 +749,6 @@ def render_active_speaker_clip(
         ], check=True, capture_output=True, timeout=300)
     except Exception as e:
         logger.error(f"Concat failed for {clip.id}: {e}")
-        # Fallback: return first sub-clip
         if sub_paths:
             import shutil
             shutil.copy(sub_paths[0], output_path)
@@ -1021,6 +760,13 @@ def render_active_speaker_clip(
         except: pass
     try: os.remove(concat_file)
     except: pass
+
+    # Apply thumbnail overlay after concat (2-pass approach)
+    if thumbnail_overlay_path and os.path.exists(thumbnail_overlay_path):
+        try:
+            _apply_thumbnail_overlay(output_path, thumbnail_overlay_path, out_w, out_h, clip.duration)
+        except Exception as e:
+            logger.warning(f"Thumbnail overlay skipped for {clip.id}: {e}")
 
     # Auto-generate thumbnail (best-effort)
     try:
@@ -1049,11 +795,6 @@ def render_one_clip(
     override_caption_style: Optional[str] = None,
     progress_callback=None,
 ) -> str:
-    """
-    Render a single clip end-to-end. Used by the per-clip rerender endpoint so
-    the user can swap layout or caption style on one clip without rebuilding
-    the whole job. Returns the output mp4 path.
-    """
     from app.pipeline.face_detect import detect_face_camera, detect_all_faces
     from app.pipeline.layout_engine import get_layout_params
     from app.pipeline.diarization import get_speaker_segments
@@ -1104,12 +845,11 @@ def render_one_clip(
             clip.speaker_segments = sp_segments
             multi_speaker = len(speakers) > 1
 
-    caption_style = override_caption_style or job.caption_style or "bold_pop"
-    layout_mode = override_layout or job.layout_mode
+    caption_style = override_caption_style or clip.caption_style_override or job.caption_style or "bold_pop"
+    layout_mode = override_layout or clip.layout_mode_override or job.layout_mode
 
     crop_overrides = clip.crop_overrides
 
-    # If the user forced a specific layout, never auto-switch to active-speaker.
     if multi_speaker and sp_segments and detect_faces and not override_layout:
         clip_path = render_active_speaker_clip(
             video_path=video_path, clip=clip, segments=segments,
@@ -1121,6 +861,7 @@ def render_one_clip(
             progress_callback=progress_callback,
             caption_style=caption_style,
             crop_overrides=crop_overrides,
+            thumbnail_overlay_path=clip.thumbnail_image_path,
         )
         clip.layout_used = "Active Speaker"
         clip.facecam_detected = True
@@ -1149,6 +890,7 @@ def render_one_clip(
             dense_cut=bool(job.dense_cut),
             trim_start=clip.trim_start, trim_end=clip.trim_end,
             crop_overrides=crop_overrides,
+            thumbnail_overlay_path=clip.thumbnail_image_path,
         )
 
     clip.file_path = clip_path
@@ -1158,8 +900,6 @@ def render_one_clip(
         clip.thumbnail_url = f"/jobs/{job.id}/clips/{clip.id}/thumb"
     return clip_path
 
-
-# --- Main render entry point ---
 
 def render_job_clips(
     job: Job, video_path: str, segments: List[Dict[str, Any]],
@@ -1244,7 +984,6 @@ def render_job_clips(
             job.save()
 
         try:
-            # Active speaker rendering for multi-speaker clips
             if multi_speaker and sp_segments and detect_faces:
                 clip_path = render_active_speaker_clip(
                     video_path=video_path, clip=clip, segments=segments,
@@ -1254,6 +993,7 @@ def render_job_clips(
                     aspect_ratio=aspect_ratio, audio_ducking=job.audio_ducking or False,
                     progress_callback=_progress,
                     caption_style=job.caption_style or "bold_pop",
+                    thumbnail_overlay_path=clip.thumbnail_image_path,
                 )
                 clip.layout_used = "Active Speaker"
                 clip.facecam_detected = True
@@ -1281,6 +1021,7 @@ def render_job_clips(
                     silence_ranges=job.silence_ranges or [],
                     dense_cut=bool(job.dense_cut),
                     trim_start=clip.trim_start, trim_end=clip.trim_end,
+                    thumbnail_overlay_path=clip.thumbnail_image_path,
                 )
 
             clip.file_path = clip_path

@@ -512,6 +512,42 @@ function applyRerender() {
     });
 }
 
+function uploadClipThumbnail(jobId, clipId, input) {
+    var file = input.files[0];
+    if (!file) return;
+    var fd = new FormData();
+    fd.append('file', file);
+    showToast('Uploading thumbnail…');
+    fetch('/api/jobs/' + jobId + '/clips/' + clipId + '/custom-thumbnail', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + API_TOKEN }, body: fd,
+    }).then(function(r) {
+        if (r.ok) return r.text();
+        return r.text().then(function(t) { throw new Error(t || 'Upload failed'); });
+    }).then(function(html) {
+        document.getElementById('job-detail-body').innerHTML = html;
+        applyTabState();
+        showToast('Thumbnail set');
+    }).catch(function(e) {
+        showToast('Error: ' + e.message, true);
+    });
+    input.value = '';
+}
+
+function removeClipThumbnail(jobId, clipId) {
+    fetch('/api/jobs/' + jobId + '/clips/' + clipId + '/custom-thumbnail', {
+        method: 'DELETE', headers: { 'Authorization': 'Bearer ' + API_TOKEN },
+    }).then(function(r) {
+        if (r.ok) return r.text();
+        return r.text().then(function(t) { throw new Error(t || 'Remove failed'); });
+    }).then(function(html) {
+        document.getElementById('job-detail-body').innerHTML = html;
+        applyTabState();
+        showToast('Thumbnail removed');
+    }).catch(function(e) {
+        showToast('Error: ' + e.message, true);
+    });
+}
+
 function retryStep(jobId, step, label) {
     if (!confirm('Re-run from "' + label + '"?\nThis step and every step after it will be recomputed.')) return;
     fetch('/jobs/' + jobId + '/retry/' + step, {
