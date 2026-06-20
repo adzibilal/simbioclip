@@ -575,6 +575,12 @@ def detect_moments(
     all_clips = _deduplicate_by_hook_type(all_clips)
     all_clips = _re_rank_by_diversity(all_clips, n_clips)
     selected = all_clips[:n_clips]
+    # _items_to_clips numbers clips per-chunk (clip_1, clip_2, ...), so across
+    # multiple chunks the ids collide. Re-assign unique, sequential ids to the
+    # final set — render writes clips/<id>.mp4, and colliding ids would otherwise
+    # overwrite each other, leaving several clips pointing at the same video.
+    for idx, c in enumerate(selected):
+        c.id = f"clip_{idx + 1}"
     logger.info(
         "Detected %d moments from %d candidates (capped at max %d). Hook types: %s",
         len(selected), len(all_clips), n_clips,
