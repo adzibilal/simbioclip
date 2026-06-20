@@ -240,7 +240,7 @@
                                     Edit
                                 </a>
                                 <button type="button" class="btn-secondary" style="padding:5px 9px;"
-                                        onclick="openTrimModal('{{ job.id }}','{{ clip.id }}',{{ clip.start }},{{ clip.end }},{{ clip.duration }},'{{ clip_src }}')">
+                                        onclick="openTrimModal('{{ job.id }}','{{ clip.id }}',{{ clip.start }},{{ clip.end }},{{ (clip.trim_start - clip.start) if clip.trim_start is not none else 0 }},{{ (clip.trim_end - clip.start) if clip.trim_end is not none else (clip.end - clip.start) }},'{{ clip_src }}&orig=1')">
                                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
                                 </button>
                                 <a class="btn-download" href="{{ clip_src }}" download target="_blank" rel="noopener">

@@ -822,20 +822,27 @@ async def trim_clip(
     if trim_end > target.end:
         raise HTTPException(status_code=400, detail="trim_end cannot be after clip end")
 
-    target.trim_start = trim_start
-    target.trim_end = trim_end
+    # Always cut from a pristine snapshot of the full render so trims are
+    # non-destructive and can be re-widened later. Output-seek (-ss after -i)
+    # with a re-encode is frame-accurate; the old stream-copy snapped to the
+    # nearest keyframe and produced frozen/black starts and A/V drift.
+    orig_path = target.file_path + ".orig"
+    if not os.path.exists(orig_path):
+        shutil.copy2(target.file_path, orig_path)
 
-    # Re-cut the already rendered clip using stream copy (fast, no re-encode)
     rel_start = trim_start - target.start
     rel_duration = trim_end - trim_start
-    tmp_path = target.file_path + ".trim.tmp"
+    tmp_path = target.file_path + ".trim.tmp.mp4"
     try:
         subprocess.run([
-            "ffmpeg", "-y",
+            "ffmpeg", "-y", "-loglevel", "error",
+            "-i", orig_path,
             "-ss", f"{rel_start:.3f}",
-            "-i", target.file_path,
             "-t", f"{rel_duration:.3f}",
-            "-c", "copy",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "128k",
+            "-movflags", "+faststart",
             tmp_path
         ], check=True, capture_output=True, timeout=300)
         os.replace(tmp_path, target.file_path)
@@ -845,6 +852,9 @@ async def trim_clip(
             except: pass
         raise HTTPException(status_code=500, detail=f"Trim failed: {e}")
 
+    target.trim_start = trim_start
+    target.trim_end = trim_end
+    target.duration = round(rel_duration, 2)
     job.save()
     logger.info(f"Trimmed clip {clip_id} to [{trim_start:.1f}s – {trim_end:.1f}s]")
     html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
@@ -907,25 +917,32 @@ async def bulk_delete_jobs(request: Request, _: str = Depends(verify_token)):
     return {"message": f"Deleted {deleted} job(s)"}
 
 @app.get("/jobs/{job_id}/clips/{clip_id}")
-async def download_job_clip(job_id: str, clip_id: str, _: str = Depends(verify_token)):
-    """Serves the rendered clip MP4 file."""
+async def download_job_clip(job_id: str, clip_id: str, orig: int = 0, _: str = Depends(verify_token)):
+    """Serves the rendered clip MP4 file. With ?orig=1, serves the pristine
+    pre-trim render (used by the trim editor preview) when one exists."""
     job = Job.load(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-        
+
     # Find matching clip
     target_clip = None
     for clip in job.clips:
         if clip.id == clip_id:
             target_clip = clip
             break
-            
+
     if not target_clip or not target_clip.file_path or not os.path.exists(target_clip.file_path):
         raise HTTPException(status_code=404, detail="Clip video file not found or not rendered yet")
-        
+
+    path = target_clip.file_path
+    if orig:
+        orig_path = path + ".orig"
+        if os.path.exists(orig_path):
+            path = orig_path
+
     # Return file response
     return FileResponse(
-        path=target_clip.file_path,
+        path=path,
         media_type="video/mp4",
         filename=f"{job_id}_{clip_id}.mp4"
     )

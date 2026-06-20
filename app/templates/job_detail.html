@@ -374,17 +374,22 @@ function esc(s) {
 // ──────────────────────────────────────────────
 var trimJobId = null, trimClipId = null, trimClipStart = 0, trimClipEnd = 0, trimClipDuration = 0;
 
-function openTrimModal(jobId, clipId, clipStart, clipEnd, clipDuration, videoUrl) {
+function openTrimModal(jobId, clipId, clipStart, clipEnd, curStart, curEnd, videoUrl) {
     trimJobId = jobId; trimClipId = clipId;
-    trimClipStart = clipStart; trimClipEnd = clipEnd; trimClipDuration = clipDuration;
-    document.getElementById('trim-clip-label').innerText = 'Clip: ' + clipId.slice(0,8);
+    // Sliders span the FULL original clip window so an earlier trim can be widened
+    // again. curStart/curEnd are the currently-applied trim offsets (relative to
+    // clipStart); the preview is the pristine pre-trim render (?orig=1).
+    trimClipStart = clipStart; trimClipEnd = clipEnd;
+    var full = clipEnd - clipStart;
+    trimClipDuration = full;
+    document.getElementById('trim-clip-label').innerText = 'Clip: ' + clipId;
     document.getElementById('trim-source-range').innerText = 'Source: ' + clipStart.toFixed(1) + 's – ' + clipEnd.toFixed(1) + 's';
     var video = document.getElementById('trim-video');
     video.src = videoUrl; video.load();
     var ss = document.getElementById('trim-start-slider');
     var es = document.getElementById('trim-end-slider');
-    ss.max = es.max = clipDuration;
-    ss.value = 0; es.value = clipDuration;
+    ss.max = es.max = full;
+    ss.value = curStart; es.value = curEnd;
     updateTrimDisplay();
     document.getElementById('trim-modal').classList.add('open');
     setTimeout(function() { video.play().catch(function(){}); }, 200);
