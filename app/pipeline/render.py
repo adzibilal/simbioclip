@@ -62,7 +62,7 @@ _STYLES = {
     "bold_pop": {
         "font": "Arial Black,Impact,Helvetica",
         "size": 58,
-        "color": "&H00FFFFFF",
+        "color": "&H0000FFFF",  # yellow (ASS is &HAABBGGRR)
         "bold": 1,
         "outline_col": "&H00000000",
         "outline": 3,
@@ -95,7 +95,9 @@ _STYLES = {
     "karaoke_highlight": {
         "font": "Arial,Helvetica",
         "size": 58,
-        "color": "&H00FFFFFF",
+        # Primary = the "sung"/highlighted colour (yellow); the Style's Secondary
+        # colour (white, set in the style line) is the base/not-yet-spoken colour.
+        "color": "&H0000FFFF",
         "bold": 1,
         "outline_col": "&H00000000",
         "outline": 3,
@@ -195,13 +197,28 @@ def generate_ass_file(
 
     for seg in target_segments:
         if "words" in seg and seg["words"] and karaoke:
-            for w in seg["words"]:
-                ws = max(0.0, w["start"] - rs)
+            # One karaoke line per segment: each word carries a {\k<cs>} tag so it
+            # fills from the base colour (Secondary) to the highlight (Primary) as
+            # it is spoken. Per-word \k durations span gaps so timing stays in sync.
+            words = seg["words"]
+            line_start = max(0.0, words[0]["start"] - rs)
+            line_end = max(0.0, words[-1]["end"] - rs)
+            if line_end <= line_start:
+                continue
+            parts = []
+            prev = line_start
+            for w in words:
                 we = max(0.0, w["end"] - rs)
-                if we <= ws:
+                word_txt = _ass_escape(w.get("word", "").upper())
+                if not word_txt:
                     continue
-                txt = _ass_escape(w.get("word", "").upper())
-                lines.append(f"Dialogue: 0,{_ass_time(ws)},{_ass_time(we)},{name},,0,0,0,,{txt}")
+                dur_cs = max(1, int(round((we - prev) * 100)))
+                parts.append(f"{{\\k{dur_cs}}}{word_txt} ")
+                prev = we
+            text = "".join(parts).strip()
+            if not text:
+                continue
+            lines.append(f"Dialogue: 0,{_ass_time(line_start)},{_ass_time(line_end)},{name},,0,0,0,,{text}")
         else:
             s = max(0.0, seg["start"] - rs)
             e = max(0.0, seg["end"] - rs)
