@@ -1,6 +1,6 @@
 import json, os, subprocess, logging, math, time
 from typing import Optional, List, Tuple, Dict, Any
-from app.models import Job, Clip, ClipCropOverrides
+from app.models import Job, Clip, ClipCropOverrides, SubtitleStyleOverrides
 from app.config import DATA_DIR
 
 logger = logging.getLogger("simbioclip.pipeline.render")
@@ -56,6 +56,122 @@ def compute_crop_box(
         y = frame_h - ch
     return x, y, cw, ch
 
+def hex_to_ass_color(hex_str: str) -> str:
+    """Converts a standard HTML hex color (#RRGGBB or #RRGGBBAA) to ASS format (&H[AA]BBGGRR)."""
+    hex_str = hex_str.strip().lstrip('#')
+    if len(hex_str) == 6:
+        r, g, b = hex_str[0:2], hex_str[2:4], hex_str[4:6]
+        return f"&H00{b}{g}{r}"
+    elif len(hex_str) == 8:
+        r, g, b, a = hex_str[0:2], hex_str[2:4], hex_str[4:6], hex_str[6:8]
+        try:
+            a_val = 255 - int(a, 16)
+            a_str = f"{a_val:02X}"
+        except ValueError:
+            a_str = "00"
+        return f"&H{a_str}{b}{g}{r}"
+    if not hex_str.startswith("&H"):
+        return f"&H00{hex_str}"
+    return hex_str
+
+def _shift_for_silence(t_abs: float, silence_ranges: List[List[float]]) -> float:
+    """Cumulative duration of silence_ranges that occur strictly before t_abs."""
+    shift = 0.0
+    for s, e in silence_ranges:
+        if e <= t_abs:
+            shift += (e - s)
+        elif s < t_abs:
+            shift += (t_abs - s)
+            break
+        else:
+            break
+    return shift
+
+def _word_chunks_from_segment(seg: Dict[str, Any], max_chars: int = 12) -> List[Dict[str, Any]]:
+    """
+    Yields 1-2 word subtitle chunks for karaoke-style fast captions.
+    Uses real word timestamps when available; otherwise linearly interpolates
+    over the segment so captions still flow per-word instead of per-sentence.
+    """
+    words = seg.get("words") or []
+    if not words:
+        text = (seg.get("text") or "").strip()
+        if not text:
+            return []
+        tokens = text.split()
+        if not tokens:
+            return []
+        s = float(seg.get("start", 0.0))
+        e = float(seg.get("end", 0.0))
+        dur = max(0.05, e - s)
+        per = dur / len(tokens)
+        words = [
+            {"start": s + i * per, "end": s + (i + 1) * per, "word": tk}
+            for i, tk in enumerate(tokens)
+        ]
+
+    chunks: List[Dict[str, Any]] = []
+    i = 0
+    while i < len(words):
+        w = words[i]
+        wt = (w.get("word") or "").strip()
+        if not wt:
+            i += 1
+            continue
+        if max_chars > 0 and i + 1 < len(words):
+            nxt = words[i + 1]
+            nxt_t = (nxt.get("word") or "").strip()
+            combined = f"{wt} {nxt_t}".strip() if nxt_t else wt
+            if nxt_t and len(combined) <= max_chars:
+                chunks.append({
+                    "start": float(w.get("start", 0.0)),
+                    "end": float(nxt.get("end", w.get("end", 0.0))),
+                    "text": combined,
+                })
+                i += 2
+                continue
+        chunks.append({
+            "start": float(w.get("start", 0.0)),
+            "end": float(w.get("end", 0.0)),
+            "text": wt,
+        })
+        i += 1
+    return chunks
+
+def _group_chunks_into_phrases(
+    chunks: List[Dict[str, Any]],
+    max_chunks: int = 4,
+    max_chars: int = 30,
+    max_gap: float = 0.6,
+) -> List[List[Dict[str, Any]]]:
+    """Group consecutive word chunks into karaoke phrases (one Dialogue per phrase)."""
+    phrases: List[List[Dict[str, Any]]] = []
+    cur: List[Dict[str, Any]] = []
+    cur_chars = 0
+    for c in chunks:
+        c_text = c.get("text", "")
+        c_chars = len(c_text)
+        gap = (c["start"] - cur[-1]["end"]) if cur else 0.0
+        prospective = cur_chars + (1 if cur else 0) + c_chars
+        if cur and (len(cur) >= max_chunks or prospective > max_chars or gap > max_gap):
+            phrases.append(cur)
+            cur = [c]
+            cur_chars = c_chars
+        else:
+            cur.append(c)
+            cur_chars = prospective
+    if cur:
+        phrases.append(cur)
+    return phrases
+
+def _speaker_at(speaker_segments: Optional[List[Dict[str, Any]]], t: float) -> Optional[str]:
+    if not speaker_segments:
+        return None
+    for s in speaker_segments:
+        if s.get("start", 0.0) - 0.01 <= t <= s.get("end", 0.0) + 0.01:
+            return s.get("speaker")
+    return None
+
 # --- Caption styles / ASS generation ---
 
 _STYLES = {
@@ -63,6 +179,7 @@ _STYLES = {
         "font": "Arial Black,Impact,Helvetica",
         "size": 58,
         "color": "&H0000FFFF",  # yellow (ASS is &HAABBGGRR)
+        "secondary_color": "&H00FFFFFF",  # white
         "bold": 1,
         "outline_col": "&H00000000",
         "outline": 3,
@@ -98,6 +215,7 @@ _STYLES = {
         # Primary = the "sung"/highlighted colour (yellow); the Style's Secondary
         # colour (white, set in the style line) is the base/not-yet-spoken colour.
         "color": "&H0000FFFF",
+        "secondary_color": "&H00CCCCCC",  # base color (light gray)
         "bold": 1,
         "outline_col": "&H00000000",
         "outline": 3,
@@ -148,6 +266,8 @@ def generate_ass_file(
     caption_style: str = "bold_pop",
     silence_ranges_in_clip: Optional[List[List[float]]] = None,
     emphasis: Optional[List[Dict]] = None,
+    subtitle_style: Optional[SubtitleStyleOverrides] = None,
+    hook_animate: bool = True,
 ):
     style = _STYLES.get(caption_style, _STYLES["bold_pop"])
     name = "CaptionStyle"
@@ -155,92 +275,231 @@ def generate_ass_file(
     # fallback like CSS. A comma in the name (e.g. "Arial,Helvetica") shifts every
     # subsequent field, corrupting Fontsize/Alignment/Margins and hiding the text.
     font = style['font'].split(',')[0].strip()
+
+    # Font size override
+    font_size = style['size']
+    if subtitle_style and subtitle_style.font_size_pct:
+        font_size = int(round(font_size * (subtitle_style.font_size_pct / 100.0)))
+
     # Lift bottom-anchored captions into the lower third instead of hugging the
     # bottom edge. For alignment 2 (bottom-center) MarginV is measured up from the
     # bottom of the 1920px frame, so ~500 lands the text around 74% height — clear
     # of the very bottom but well below center.
-    margin_v = 500 if style['alignment'] == 2 else 180
+    alignment = style['alignment']
+    margin_v = 500 if alignment == 2 else 180
+    if subtitle_style and subtitle_style.position:
+        pos = subtitle_style.position.lower()
+        if pos == "top":
+            alignment = 8
+            margin_v = 180
+        elif pos == "center":
+            alignment = 5
+            margin_v = 10
+        elif pos == "bottom":
+            alignment = 2
+            margin_v = 500
+
+    # Color overrides
+    highlight_color = style['color']
+    if subtitle_style and subtitle_style.color:
+        highlight_color = hex_to_ass_color(subtitle_style.color)
+    base_color = style.get("secondary_color", "&H00FFFFFF")
+
     fmt = ("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, "
            "OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, "
            "ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, "
            "Alignment, MarginL, MarginR, MarginV, Encoding")
-    sline = (f"Style: {name},{font},{style['size']},{style['color']},"
-             f"&H00FFFFFF,{style['outline_col']},{style['shadow_col']},"
+    sline = (f"Style: {name},{font},{font_size},{highlight_color},"
+             f"{base_color},{style['outline_col']},{style['shadow_col']},"
              f"{style['bold']},0,0,0,100,100,0,0,1,{style['outline']},"
-             f"{style['shadow']},{style['alignment']},10,10,{margin_v},1")
+             f"{style['shadow']},{alignment},10,10,{margin_v},1")
     sline2 = (f"Style: Hook,{font},48,&H00FFFFFF,"
               f"&H00FFFFFF,&H00000000,&H80000000,"
               f"{style['bold']},0,0,0,100,100,0,0,1,2,0,8,10,10,140,1")
+    sline_emoji = (f"Style: EmojiStyle,Noto Color Emoji,140,&H00FFFFFF,"
+                   f"&H00FFFFFF,&H00000000,&H80000000,"
+                   f"0,0,0,0,100,100,0,0,1,0,0,9,40,40,60,1")
+
+    # Speaker specific styles
+    SPEAKER_COLORS = [
+        "&H00FFB347",
+        "&H0066B2FF",
+        "&H0044FF44",
+        "&H00FF6EB4",
+        "&H00FFFF44",
+        "&H00B266FF",
+        "&H00FF4444",
+        "&H0044FFFF",
+    ]
+    speaker_styles: Dict[str, str] = {}
+    speaker_style_lines = []
+    if speaker_segments:
+        seen: Dict[str, str] = {}
+        for s in speaker_segments:
+            sp = s.get("speaker", "UNKNOWN")
+            if sp not in seen:
+                idx = len(seen) % len(SPEAKER_COLORS)
+                seen[sp] = SPEAKER_COLORS[idx]
+                style_name = f"Spkr{idx}"
+                sp_line = (f"Style: {style_name},{font},{font_size},{SPEAKER_COLORS[idx]},"
+                           f"{base_color},{style['outline_col']},{style['shadow_col']},"
+                           f"{style['bold']},0,0,0,100,100,0,0,1,{style['outline']},"
+                           f"{style['shadow']},{alignment},10,10,{margin_v},1")
+                speaker_style_lines.append(sp_line)
+                speaker_styles[sp] = style_name
 
     rs = render_start if render_start is not None else clip_start
+    silences = silence_ranges_in_clip or []
 
-    # --- Build section lines ---
-    lines = []
+    def rel_t(t_abs: float) -> float:
+        raw = t_abs - rs
+        if raw <= 0:
+            return 0.0
+        return max(0.0, raw - _shift_for_silence(t_abs, silences))
+
+    # --- Build events ---
+    lines_events = []
     hook = (hook_text or "").strip()
     if hook:
-        dur = min(clip_end - clip_start, 2.5)
-        lines.append(f"Dialogue: 0,0:00:00.00,{_ass_time(dur)},Hook,,0,0,0,,{_ass_escape(hook.upper())}")
+        hook_max = min(2.0, clip_end - clip_start)
+        hook_min = min(1.2, hook_max)
+        hook_duration = max(hook_min, min(hook_max, 0.06 * len(hook_text)))
+        if hook_duration > 0.4:
+            sanitized = _ass_escape(hook.upper())
+            anim_prefix = "{\\fscx120\\fscy120\\t(0,280,\\fscx100\\fscy100)}" if caption_style != "minimal" else ""
+            lines_events.append(
+                f"Dialogue: 1,{_ass_time(0.0)},{_ass_time(hook_duration)},Hook,,0,0,0,,{anim_prefix}{sanitized}"
+            )
 
     emoji_list = emphasis or []
-    for em in emoji_list:
-        et = em.get("t", 0)
-        emoji_char = em.get("emoji", "")
-        if not emoji_char:
+    for i, em in enumerate(emoji_list):
+        try:
+            t_abs = float(em.get("t", -1))
+        except (TypeError, ValueError):
             continue
-        eta = max(0.0, et - rs)
-        start_ms = _ass_time(eta)
-        end_ms = _ass_time(eta + 1.0)
-        lines.append(f"Dialogue: 0,{start_ms},{end_ms},{name},,0,0,0,,{emoji_char}")
+        emoji_char = em.get("emoji", "").strip()
+        if not emoji_char or t_abs < clip_start or t_abs > clip_end:
+            continue
+        rs_time = rel_t(t_abs)
+        re_time = rel_t(t_abs + 1.0)
+        if re_time - rs_time < 0.2:
+            continue
+        pos_tag = "{\\an7}" if i % 2 == 1 else ""
+        anim = "{\\fscx60\\fscy60\\t(0,200,\\fscx110\\fscy110)\\t(200,350,\\fscx100\\fscy100)}"
+        lines_events.append(
+            f"Dialogue: 2,{_ass_time(rs_time)},{_ass_time(re_time)},EmojiStyle,,0,0,0,,{pos_tag}{anim}{emoji_char}"
+        )
 
-    target_segments = speaker_segments if speaker_segments is not None else segments
+    def _resolve_style_for_time(t_mid: float) -> Optional[str]:
+        if speaker_segments is None:
+            return name
+        sp = _speaker_at(speaker_segments, t_mid)
+        if sp is None:
+            return None
+        return speaker_styles.get(sp, name)
+
     karaoke = style.get("karaoke", False)
 
-    for seg in target_segments:
-        if "words" in seg and seg["words"] and karaoke:
-            # One karaoke line per segment: each word carries a {\k<cs>} tag so it
-            # fills from the base colour (Secondary) to the highlight (Primary) as
-            # it is spoken. Per-word \k durations span gaps so timing stays in sync.
-            words = seg["words"]
-            line_start = max(0.0, words[0]["start"] - rs)
-            line_end = max(0.0, words[-1]["end"] - rs)
-            if line_end <= line_start:
+    if karaoke:
+        # Phrase-grouped karaoke mode
+        max_chunks = 4
+        max_chars = 30
+        for seg in segments:
+            seg_start = float(seg.get("start", 0.0))
+            seg_end = float(seg.get("end", 0.0))
+            if seg_end <= clip_start or seg_start >= clip_end:
                 continue
-            parts = []
-            prev = line_start
-            for w in words:
-                we = max(0.0, w["end"] - rs)
-                word_txt = _ass_escape(w.get("word", "").upper())
-                if not word_txt:
+            seg_chunks = [
+                c for c in _word_chunks_from_segment(seg, max_chars=12)
+                if c["end"] > clip_start and c["start"] < clip_end
+            ]
+            if not seg_chunks:
+                continue
+            for phrase in _group_chunks_into_phrases(seg_chunks, max_chunks=max_chunks, max_chars=max_chars):
+                p_start = phrase[0]["start"]
+                p_end = phrase[-1]["end"]
+                rs_phrase = rel_t(p_start)
+                re_phrase = rel_t(p_end)
+                if re_phrase - rs_phrase < 0.05:
                     continue
-                dur_cs = max(1, int(round((we - prev) * 100)))
-                parts.append(f"{{\\k{dur_cs}}}{word_txt} ")
-                prev = we
-            text = "".join(parts).strip()
-            if not text:
+                style_resolved = _resolve_style_for_time((p_start + p_end) / 2.0)
+                if style_resolved is None:
+                    continue
+
+                parts = []
+                prev_end_rel = rel_t(p_start)
+                for c in phrase:
+                    c_start_rel = rel_t(c["start"])
+                    c_end_rel = rel_t(c["end"])
+                    c_text = _ass_escape(c.get("text", "")).upper()
+                    
+                    # Silence gap within the phrase
+                    if c_start_rel > prev_end_rel:
+                        gap_cs = int(round((c_start_rel - prev_end_rel) * 100))
+                        if gap_cs > 0:
+                            parts.append(f"{{\\kf{gap_cs}}}")
+                    
+                    dur_cs = max(1, int(round((c_end_rel - c_start_rel) * 100)))
+                    parts.append(f"{{\\kf{dur_cs}}}{c_text} ")
+                    prev_end_rel = c_end_rel
+
+                text = "".join(parts).strip()
+                if not text:
+                    continue
+                lines_events.append(
+                    f"Dialogue: 0,{_ass_time(rs_phrase)},{_ass_time(re_phrase)},{style_resolved},,0,0,0,,{text}"
+                )
+    else:
+        # Word-by-word / chunk display (non-karaoke styles)
+        # If it is bold_pop style, chunk size is exactly 1 word (max_chars=0). Otherwise 1-2 words (max_chars=12).
+        chunk_max_chars = 0 if caption_style == "bold_pop" else 12
+        for seg in segments:
+            seg_start = float(seg.get("start", 0.0))
+            seg_end = float(seg.get("end", 0.0))
+            if seg_end <= clip_start or seg_start >= clip_end:
                 continue
-            lines.append(f"Dialogue: 0,{_ass_time(line_start)},{_ass_time(line_end)},{name},,0,0,0,,{text}")
-        else:
-            s = max(0.0, seg["start"] - rs)
-            e = max(0.0, seg["end"] - rs)
-            if e <= s:
-                continue
-            txt = _ass_escape(seg.get("text", "").upper())
-            lines.append(f"Dialogue: 0,{_ass_time(s)},{_ass_time(e)},{name},,0,0,0,,{txt}")
+            for chunk in _word_chunks_from_segment(seg, max_chars=chunk_max_chars):
+                c_start = chunk["start"]
+                c_end = chunk["end"]
+                if c_end <= clip_start or c_start >= clip_end:
+                    continue
+                rs_chunk = rel_t(c_start)
+                re_chunk = rel_t(c_end)
+                if re_chunk - rs_chunk < 0.05:
+                    continue
+                text = _ass_escape(chunk["text"]).upper()
+                if not text:
+                    continue
+                style_resolved = _resolve_style_for_time((c_start + c_end) / 2.0)
+                if style_resolved is None:
+                    continue
+
+                # Apply pop scale animation for bold_pop style: scale 115% -> 100% in 100ms
+                anim_prefix = ""
+                if caption_style == "bold_pop":
+                    anim_prefix = "{\\fscx115\\fscy115\\t(0,100,\\fscx100\\fscy100)\\b1}"
+
+                lines_events.append(
+                    f"Dialogue: 0,{_ass_time(rs_chunk)},{_ass_time(re_chunk)},{style_resolved},,0,0,0,,{anim_prefix}{text}"
+                )
 
     content = "\n".join([
         "[Script Info]",
         "ScriptType: v4.00+",
         "PlayResX: 1080",
         "PlayResY: 1920",
+        "ScaledBorderAndShadow: yes",
         "",
         "[V4+ Styles]",
         fmt,
         sline,
         sline2,
+        sline_emoji,
+    ] + speaker_style_lines + [
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-    ] + lines)
+    ] + lines_events)
 
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(content)
@@ -510,6 +769,7 @@ def render_clip_ffmpeg(
         caption_style=caption_style,
         silence_ranges_in_clip=silence_abs,
         emphasis=clip.emphasis or [],
+        subtitle_style=clip.subtitle_style,
     )
 
     escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
@@ -739,6 +999,7 @@ def render_active_speaker_clip(
             out_w=out_w, out_h=out_h, render_start=g_start,
             caption_style=caption_style,
             emphasis=clip.emphasis or [],
+            subtitle_style=clip.subtitle_style,
         )
 
         escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
