@@ -268,6 +268,7 @@ def generate_ass_file(
     emphasis: Optional[List[Dict]] = None,
     subtitle_style: Optional[SubtitleStyleOverrides] = None,
     hook_animate: bool = True,
+    persistent_title: Optional[str] = None,
 ):
     style = _STYLES.get(caption_style, _STYLES["bold_pop"])
     name = "CaptionStyle"
@@ -320,6 +321,17 @@ def generate_ass_file(
                    f"&H00FFFFFF,&H00000000,&H80000000,"
                    f"0,0,0,0,100,100,0,0,1,0,0,9,40,40,60,1")
 
+    # Persistent title bar (used by the BG-Blur layout): large white text inside
+    # a near-opaque black box, pinned to the top above the 4:5 content panel.
+    # BorderStyle 3 draws the box; Outline is the box padding.
+    title_style_lines: List[str] = []
+    has_title = bool(persistent_title and persistent_title.strip())
+    if has_title:
+        title_style_lines.append(
+            f"Style: TitleStyle,{font},60,&H00FFFFFF,&H00FFFFFF,"
+            f"&H1A000000,&H00000000,1,0,0,0,100,100,0,0,3,16,0,8,60,60,70,1"
+        )
+
     # Speaker specific styles
     SPEAKER_COLORS = [
         "&H00FFB347",
@@ -359,8 +371,10 @@ def generate_ass_file(
 
     # --- Build events ---
     lines_events = []
+    # When a persistent title is shown (BG-Blur layout) it occupies the top, so
+    # the brief animated hook would collide with it — skip the hook in that case.
     hook = (hook_text or "").strip()
-    if hook:
+    if hook and not has_title:
         hook_max = min(2.0, clip_end - clip_start)
         hook_min = min(1.2, hook_max)
         hook_duration = max(hook_min, min(hook_max, 0.06 * len(hook_text)))
@@ -370,6 +384,15 @@ def generate_ass_file(
             lines_events.append(
                 f"Dialogue: 1,{_ass_time(0.0)},{_ass_time(hook_duration)},Hook,,0,0,0,,{anim_prefix}{sanitized}"
             )
+
+    if has_title:
+        # Title stays on-screen for the whole clip. Overshooting the end time is
+        # harmless — libass simply stops at the video's last frame.
+        title_end = max(0.1, clip_end - rs)
+        title_clean = _ass_escape(persistent_title.strip())
+        lines_events.append(
+            f"Dialogue: 3,{_ass_time(0.0)},{_ass_time(title_end)},TitleStyle,,0,0,0,,{title_clean}"
+        )
 
     emoji_list = emphasis or []
     for i, em in enumerate(emoji_list):
@@ -437,10 +460,10 @@ def generate_ass_file(
                     if c_start_rel > prev_end_rel:
                         gap_cs = int(round((c_start_rel - prev_end_rel) * 100))
                         if gap_cs > 0:
-                            parts.append(f"{{\\kf{gap_cs}}}")
+                            parts.append(f"{{\\k{gap_cs}}}")
                     
                     dur_cs = max(1, int(round((c_end_rel - c_start_rel) * 100)))
-                    parts.append(f"{{\\kf{dur_cs}}}{c_text} ")
+                    parts.append(f"{{\\k{dur_cs}}}{c_text} ")
                     prev_end_rel = c_end_rel
 
                 text = "".join(parts).strip()
@@ -486,6 +509,7 @@ def generate_ass_file(
     content = "\n".join([
         "[Script Info]",
         "ScriptType: v4.00+",
+        "WrapStyle: 0",
         "PlayResX: 1080",
         "PlayResY: 1920",
         "ScaledBorderAndShadow: yes",
@@ -495,7 +519,7 @@ def generate_ass_file(
         sline,
         sline2,
         sline_emoji,
-    ] + speaker_style_lines + [
+    ] + title_style_lines + speaker_style_lines + [
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -554,6 +578,30 @@ def build_inset_filter(face_box: Tuple[int,int,int,int], w: int, h: int,
 
 def build_passthrough_filter(escaped_ass: str, out_w: int = OUT_W, out_h: int = OUT_H) -> str:
     return f"scale={out_w}:{out_h},setsar=1,ass='{escaped_ass}'"
+
+def build_bg_blur_filter(w: int, h: int, escaped_ass: str,
+                         out_w: int = OUT_W, out_h: int = OUT_H,
+                         blur_sigma: float = 24.0) -> str:
+    """BG-Blur layout: the source fills the whole 9:16 frame as a heavily blurred
+    backdrop, with a sharp 4:5 center-crop of the content composited in the
+    middle. The ASS overlay paints the persistent title above and the subtitles
+    below (caption MarginV lands them over the lower part of the content panel)."""
+    # Content panel is 4:5, as wide as the frame, vertically centered.
+    content_w = _even(out_w)
+    content_h = _even(content_w * 5 / 4)
+    if content_h > out_h:
+        content_h = _even(out_h)
+        content_w = _even(content_h * 4 / 5)
+    ox = max(0, _even((out_w - content_w) / 2))
+    oy = max(0, _even((out_h - content_h) / 2))
+    return (
+        f"[0:v]split=2[bg][fg];"
+        f"[bg]scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+        f"crop={out_w}:{out_h},gblur=sigma={blur_sigma:g},setsar=1[bgb];"
+        f"[fg]scale={content_w}:{content_h}:force_original_aspect_ratio=increase,"
+        f"crop={content_w}:{content_h},setsar=1[fgc];"
+        f"[bgb][fgc]overlay={ox}:{oy},ass='{escaped_ass}'"
+    )
 
 def build_face_track_filter(face_box: Tuple[int,int,int,int], w: int, h: int,
                             facecam_scale: float, escaped_ass: str,
@@ -685,34 +733,76 @@ def _build_silence_skip_filter_complex(
     return f"{layout_v};{audio_v}", "[vout]", "[aout]"
 
 
-def _apply_thumbnail_overlay(
+# Seconds the uploaded thumbnail is shown as a cover/intro card before the clip.
+THUMBNAIL_COVER_DURATION = 0.2
+
+
+def _probe_fps_str(path: str, default: str = "30") -> str:
+    """Returns the source video's frame rate as an ffmpeg fraction string
+    (e.g. '30000/1001'). The prepended cover must use the exact same frame rate
+    or the concat filter rejects the two segments as incompatible."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=r_frame_rate", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=30)
+        val = (r.stdout or "").strip()
+        if val and val not in ("0/0", "N/A"):
+            return val
+    except Exception:
+        pass
+    return default
+
+
+def _prepend_thumbnail_cover(
     video_path: str,
     thumbnail_path: str,
     out_w: int,
     out_h: int,
-    duration: float,
+    cover_duration: float = THUMBNAIL_COVER_DURATION,
 ) -> None:
-    """Overlay thumbnail image at the beginning of the video (first 0.1s)."""
-    tmp_path = video_path + ".thumb_tmp.mp4"
+    """Prepend the uploaded thumbnail as a short cover/intro card (~1.8s) in
+    front of the rendered clip; the clip then plays normally with its captions.
+
+    Captions are burned into the clip during the main render, so they are fully
+    preserved — only the cover (which intentionally carries no captions) comes
+    before them. Implemented as a single filter_complex concat so the cover and
+    the clip share identical frame rate / pixel format / SAR / audio params
+    (concat refuses mismatched segments). The cover carries silent audio."""
+    tmp_path = video_path + ".cover_tmp.mp4"
+    fps = _probe_fps_str(video_path)
+    dur = max(0.1, float(cover_duration))
+    filter_complex = (
+        # Cover frame: fit the image into the output frame, pad to fill, hold for `dur`.
+        f"[1:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,"
+        f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+        f"fps={fps},trim=duration={dur:.3f},setpts=PTS-STARTPTS,format=yuv420p[cover];"
+        # Silent audio bed for the cover, matched to the normalised clip audio.
+        f"anullsrc=channel_layout=stereo:sample_rate=44100,"
+        f"atrim=duration={dur:.3f},asetpts=PTS-STARTPTS[csil];"
+        # Normalise the clip streams so concat accepts them next to the cover.
+        f"[0:v]fps={fps},setsar=1,format=yuv420p[mv];"
+        f"[0:a]aresample=44100,aformat=channel_layouts=stereo[ma];"
+        f"[cover][csil][mv][ma]concat=n=2:v=1:a=1[vout][aout]"
+    )
     cmd = [
         "ffmpeg", "-y", "-loglevel", "error",
         "-i", video_path,
-        "-i", thumbnail_path,
-        "-filter_complex",
-        f"[1:v]scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,"
-        f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:color=black[thumb];"
-        f"[0:v][thumb]overlay=0:0:enable='lte(t,0.1)'",
+        "-loop", "1", "-t", f"{dur:.3f}", "-i", thumbnail_path,
+        "-filter_complex", filter_complex,
+        "-map", "[vout]", "-map", "[aout]",
         "-c:v", "libx264", "-preset", "superfast", "-crf", "22",
-        "-c:a", "copy",
-        "-y", tmp_path,
+        "-c:a", "aac", "-b:a", "192k",
+        "-movflags", "+faststart",
+        tmp_path,
     ]
     try:
         subprocess.run(cmd, check=True, capture_output=True, timeout=300)
         os.replace(tmp_path, video_path)
-        logger.info(f"Thumbnail overlay applied to {video_path}")
+        logger.info(f"Thumbnail cover prepended to {video_path} ({dur:.1f}s)")
     except subprocess.CalledProcessError as e:
         stderr = (e.stderr or b"").decode(errors="ignore")[:500]
-        logger.error(f"Thumbnail overlay failed for {video_path}: {stderr}")
+        logger.error(f"Thumbnail cover failed for {video_path}: {stderr}")
         if os.path.exists(tmp_path):
             try: os.remove(tmp_path)
             except: pass
@@ -762,6 +852,10 @@ def render_clip_ffmpeg(
                 silence_abs.append([round(s, 3), round(e, 3)])
                 silence_rel.append([round(s - render_start, 3), round(e - render_start, 3)])
 
+    lt = layout_params.get("type") if layout_params else None
+    # The BG-Blur layout paints the clip title as a persistent top bar.
+    persistent_title = clip.title if lt == "bg_blur" else None
+
     generate_ass_file(
         segments, clip.start, clip.end, clip.hook, ass_path,
         speaker_segments=speaker_segments, out_w=out_w, out_h=out_h,
@@ -770,15 +864,16 @@ def render_clip_ffmpeg(
         silence_ranges_in_clip=silence_abs,
         emphasis=clip.emphasis or [],
         subtitle_style=clip.subtitle_style,
+        persistent_title=persistent_title,
     )
 
     escaped_ass = ass_path.replace("\\", "/").replace(":", "\\:")
     escaped_ass = escaped_ass.replace("'", "'\\\\''")
 
-    lt = layout_params.get("type") if layout_params else None
-
     if lt == "passthrough":
         vf = build_passthrough_filter(escaped_ass, out_w, out_h)
+    elif lt == "bg_blur":
+        vf = build_bg_blur_filter(w, h, escaped_ass, out_w, out_h)
     elif lt == "split_cam" and layout_params.get("face_box"):
         fb = layout_params["face_box"]
         vf = build_split_cam_filter(
@@ -893,12 +988,12 @@ def render_clip_ffmpeg(
         try: os.remove(ass_path)
         except: pass
 
-    # Apply thumbnail overlay after main render (2-pass approach)
+    # Prepend the uploaded thumbnail as a short cover/intro (2-pass approach).
     if thumbnail_overlay_path and os.path.exists(thumbnail_overlay_path):
         try:
-            _apply_thumbnail_overlay(output_path, thumbnail_overlay_path, out_w, out_h, render_duration)
+            _prepend_thumbnail_cover(output_path, thumbnail_overlay_path, out_w, out_h)
         except Exception as e:
-            logger.warning(f"Thumbnail overlay skipped for {clip.id}: {e}")
+            logger.warning(f"Thumbnail cover skipped for {clip.id}: {e}")
 
     # Auto-generate thumbnail (best-effort; never fails the render)
     try:
@@ -1054,12 +1149,12 @@ def render_active_speaker_clip(
     try: os.remove(concat_file)
     except: pass
 
-    # Apply thumbnail overlay after concat (2-pass approach)
+    # Prepend the uploaded thumbnail as a short cover/intro after concat (2-pass).
     if thumbnail_overlay_path and os.path.exists(thumbnail_overlay_path):
         try:
-            _apply_thumbnail_overlay(output_path, thumbnail_overlay_path, out_w, out_h, clip.duration)
+            _prepend_thumbnail_cover(output_path, thumbnail_overlay_path, out_w, out_h)
         except Exception as e:
-            logger.warning(f"Thumbnail overlay skipped for {clip.id}: {e}")
+            logger.warning(f"Thumbnail cover skipped for {clip.id}: {e}")
 
     # Auto-generate thumbnail (best-effort)
     try:

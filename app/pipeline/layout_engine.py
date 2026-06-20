@@ -78,6 +78,14 @@ def get_layout_params(
             "face_boxes": all_faces,
         }
 
+    # BG-Blur is a composition effect, not a face-driven crop — it needs no face
+    # detection, so resolve it before the face-required branches below.
+    if effective_type == "bg_blur":
+        return {
+            "type": "bg_blur",
+            "label": "BG Blur",
+        }
+
     if not all_faces and not face_box:
         if effective_type in ("vertical", "passthrough"):
             return {"type": "passthrough", "label": "Vertical Passthrough"}

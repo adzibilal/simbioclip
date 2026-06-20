@@ -15,9 +15,26 @@ CHUNK_SIZE = 50
 CLIPS_PER_CHUNK = 2
 
 VALID_HOOK_TYPES = [
-    "claim", "story", "question", "insight", 
+    "claim", "story", "question", "insight",
     "funny", "controversial", "emotional", "actionable"
 ]
+
+# Laughter / humor cues (ID + EN + emoji) used to flag a clip as "funny" even
+# when the LLM didn't tag hook_type="funny" but the hook/reason clearly contains
+# laughter. Kept lowercase for case-insensitive substring matching.
+LAUGHTER_MARKERS = (
+    "haha", "hehe", "hihi", "wkwk", "ngakak", "ketawa", "kocak", "lucu",
+    "ngocol", "lol", "lmao", "rofl", "😂", "🤣", "😆", "😹", "😅",
+)
+
+
+def _is_funny(clip: Clip) -> bool:
+    """A clip counts as funny if the LLM tagged it so, or its hook/reason text
+    carries an explicit laughter/humor cue."""
+    if (clip.hook_type or "").lower() == "funny":
+        return True
+    blob = f"{clip.hook or ''} {clip.reason or ''}".lower()
+    return any(m in blob for m in LAUGHTER_MARKERS)
 
 
 def _truncate_segments(segments: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -214,6 +231,16 @@ def _build_system_prompt(lang_instruction: str,
         "Match your judgement to the content:\n"
         f"{content_guide}"
 
+        "# TOP PRIORITY — FUNNY & LAUGHTER\n"
+        "Before anything else, hunt for FUNNY moments: jokes, punchlines, witty comebacks, "
+        "absurd or relatable humor, and ESPECIALLY moments where people LAUGH (audible "
+        "laughter, 'haha', giggling, cracking up, 'ngakak'). Funny / laughter clips are the "
+        "MOST important — find as many genuinely funny moments as you can and score them "
+        "high, and always set their hook_type to \"funny\". Only AFTER you've captured the "
+        "funny moments should you add other strong moments (insights, stories, hot takes, "
+        "emotional beats) to fill the remaining slots. If the video truly has no funny or "
+        "laughter moments, then return the best other moments instead.\n\n"
+
         "# WHAT MAKES A GOOD CLIP\n"
         "1) HOOK — the first few seconds earn attention. A hook can be a bold or contrarian claim, a curiosity "
         "gap, a funny or relatable line, an intriguing question, a surprising fact, an emotional beat, or a "
@@ -228,7 +255,9 @@ def _build_system_prompt(lang_instruction: str,
         "Choose clips that feel DIFFERENT from each other — different speakers, different topics, "
         "different emotional tones, different types of hooks. Avoid returning 2+ clips from the same "
         "conversation segment about the same topic. Variety is more important than chasing a slightly "
-        "higher score on a similar moment.\n\n"
+        "higher score on a similar moment.\n"
+        "EXCEPTION: funny / laughter moments are the priority — do NOT drop a funny moment for the "
+        "sake of variety. Keep every genuinely funny moment, then diversify the remaining slots.\n\n"
 
         "# HOOK TYPES — classify each clip's hook_type\n"
         "   \"claim\"        — bold assertion, hot take, contrarian opinion\n"
@@ -292,7 +321,9 @@ def _build_user_prompt(formatted_transcript: str,
         )
     return (
         f"Analyze the transcript below. {chunk_note}\n\n"
-        f"Find up to {max_clips} clip(s) that are engaging, funny, surprising, or informative. "
+        f"FIRST, find the FUNNY moments and moments with laughter — these are the priority. "
+        f"Then, only if there aren't enough funny moments, fill up to {max_clips} clip(s) total "
+        f"with other engaging, surprising, or informative moments. "
         f"Make sure each clip fits {dur_min}-{dur_max}s. "
         f"Score everything 5+; dip to 3-4 for conversational content if you'd otherwise return few or no clips.\n\n"
         f"{diversity_note}"
@@ -572,9 +603,30 @@ def detect_moments(
 
     all_clips.sort(key=lambda c: c.score, reverse=True)
     all_clips = _deduplicate_clips(all_clips)
-    all_clips = _deduplicate_by_hook_type(all_clips)
-    all_clips = _re_rank_by_diversity(all_clips, n_clips)
-    selected = all_clips[:n_clips]
+
+    # PRIORITY: funny / laughter moments come first. Only when there aren't
+    # enough funny ones to fill the quota do we fall back to other moment types
+    # (and the diversity logic is applied to that fallback pool only, so the
+    # non-funny slots still stay varied).
+    funny = sorted(
+        [c for c in all_clips if _is_funny(c)],
+        key=lambda c: c.score, reverse=True,
+    )
+    others = [c for c in all_clips if not _is_funny(c)]
+
+    if len(funny) >= n_clips:
+        selected = funny[:n_clips]
+    else:
+        remaining = n_clips - len(funny)
+        fallback = _deduplicate_by_hook_type(others)
+        fallback = _re_rank_by_diversity(fallback, remaining)
+        selected = funny + fallback[:remaining]
+
+    logger.info(
+        "Funny-first selection: %d funny candidate(s), %d other; selected %d (%d funny).",
+        len(funny), len(others), len(selected),
+        sum(1 for c in selected if _is_funny(c)),
+    )
     # _items_to_clips numbers clips per-chunk (clip_1, clip_2, ...), so across
     # multiple chunks the ids collide. Re-assign unique, sequential ids to the
     # final set — render writes clips/<id>.mp4, and colliding ids would otherwise
