@@ -3,7 +3,7 @@ services:
     build: .
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     environment:
-      - REDIS_URL=redis://simbioclip-redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
       - API_TOKEN=${API_TOKEN}
       - LLM_ROUTERS=${LLM_ROUTERS}
       - STT_MODE=${STT_MODE}
@@ -19,35 +19,19 @@ services:
       - ./cookies.txt:/app/cookies.txt
     depends_on:
       - redis
-    restart: unless-stopped
-    expose:
-      - "8000"
+    ports:
+      - "8000:8000"
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')"]
       interval: 10s
       timeout: 5s
       retries: 5
-    networks:
-      - coolify
-    labels:
-      - "traefik.enable=true"
-      - "traefik.http.middlewares.gzip.compress=true"
-      - "traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https"
-      - "traefik.http.routers.simbioclip-http.entrypoints=http"
-      - "traefik.http.routers.simbioclip-http.middlewares=redirect-to-https"
-      - "traefik.http.routers.simbioclip-http.rule=Host(`clip.simbiospace.site`)"
-      - "traefik.http.routers.simbioclip-https.entrypoints=https"
-      - "traefik.http.routers.simbioclip-https.rule=Host(`clip.simbiospace.site`)"
-      - "traefik.http.routers.simbioclip-https.tls=true"
-      - "traefik.http.routers.simbioclip-https.tls.certresolver=letsencrypt"
-      - "traefik.http.routers.simbioclip-https.service=simbioclip"
-      - "traefik.http.services.simbioclip.loadbalancer.server.port=8000"
 
   worker:
     build: .
     command: python3 -m app.worker
     environment:
-      - REDIS_URL=redis://simbioclip-redis:6379/0
+      - REDIS_URL=redis://redis:6379/0
       - API_TOKEN=${API_TOKEN}
       - LLM_ROUTERS=${LLM_ROUTERS}
       - STT_MODE=${STT_MODE}
@@ -63,26 +47,16 @@ services:
       - ./cookies.txt:/app/cookies.txt
     depends_on:
       - redis
-    restart: unless-stopped
     deploy:
       resources:
         limits:
           memory: 6G
-    networks:
-      - coolify
 
   redis:
-    container_name: simbioclip-redis
     image: redis:7-alpine
     volumes:
       - redis_data:/data
-    networks:
-      - coolify
 
 volumes:
   clip_data:
   redis_data:
-
-networks:
-  coolify:
-    external: true

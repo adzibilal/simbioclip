@@ -11,6 +11,10 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive
 
+# Pre-downloaded GPG keys for NodeSource & Google Chrome (avoids curl from
+# within the build, which may fail in restricted Docker network environments).
+COPY keys/ /tmp/keys/
+
 # System deps (rarely changes). BuildKit cache mounts keep the apt cache around
 # between builds, so adding a single package later only downloads that package
 # rather than re-fetching ffmpeg + the fonts each time.
@@ -19,11 +23,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     rm -f /etc/apt/apt.conf.d/docker-clean && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-        ca-certificates curl gnupg && \
+        ca-certificates && \
     mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    cp /tmp/keys/nodesource.gpg /etc/apt/keyrings/nodesource.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
-    curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg && \
+    cp /tmp/keys/google-chrome.gpg /etc/apt/keyrings/google-chrome.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -36,7 +40,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         fonts-dejavu \
         fonts-noto-color-emoji \
         fontconfig \
-    && fc-cache -f
+    && fc-cache -f && \
+    rm -rf /tmp/keys
 
 WORKDIR /app
 

@@ -32,11 +32,41 @@ if [[ ! -f .env ]]; then
   warn ".env not found — secrets will be empty. Copy .env.example if you have one."
 fi
 
+# Ensure third-party GPG keys are available before building (Docker's network
+# often cannot reach deb.nodesource.com / dl.google.com during builds).
+fetch_keys() {
+  local dir="keys"
+  mkdir -p "$dir"
+  if [[ ! -f "$dir/nodesource.gpg" ]]; then
+    say "Downloading NodeSource GPG key…"
+    curl -fsSL --retry 3 --retry-delay 5 \
+      https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key |
+      gpg --dearmor -o "$dir/nodesource.gpg"
+  fi
+  if [[ ! -f "$dir/google-chrome.gpg" ]]; then
+    say "Downloading Google Chrome GPG key…"
+    curl -fsSL --retry 3 --retry-delay 5 \
+      https://dl.google.com/linux/linux_signing_key.pub |
+      gpg --dearmor -o "$dir/google-chrome.gpg"
+  fi
+}
+
+# Ensure cookies.txt is a file, not a directory (common mistake that breaks
+# Docker volume-mount — the container sees a dir and errors with "Is a directory").
+if [[ -d cookies.txt ]]; then
+  warn "cookies.txt is a directory — replacing with empty file."
+  rm -rf cookies.txt && touch cookies.txt
+fi
+if [[ ! -f cookies.txt ]]; then
+  touch cookies.txt
+fi
+
 cmd="${1:-up}"
 shift || true
 
 case "$cmd" in
   up|start)
+    fetch_keys
     say "Building images…"
     docker compose build
     say "Starting containers…"
