@@ -2,6 +2,10 @@
 
 AI video clipper self-hosted — ubah video panjang jadi shorts vertikal dengan caption otomatis. Tanpa biaya langganan.
 
+<img width="1600" height="803" alt="image" src="https://github.com/user-attachments/assets/1fedf842-c73c-4440-8d2d-c5fb5eed3fd6" />
+
+<img width="1901" height="912" alt="image" src="https://github.com/user-attachments/assets/4d92ea0a-711e-4b49-bbd4-72449cf0b11c" />
+
 > **Open Source Project** — This project is open source and still under active development. There may be bugs and issues. Feel free to contribute, report issues, or submit Pull Requests on [GitHub](https://github.com/adzibilal/simbioclip).
 
 ## Fitur
