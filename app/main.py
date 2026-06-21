@@ -70,6 +70,11 @@ def verify_token(
 
 # HTML routes
 @app.get("/", response_class=HTMLResponse)
+async def get_landing_page(request: Request):
+    """Renders the public landing page."""
+    return templates.TemplateResponse(request, "landing.html", {})
+
+@app.get("/app", response_class=HTMLResponse)
 async def get_dashboard(request: Request, api_token: Optional[str] = Cookie(None)):
     """Renders the dashboard index page if logged in, else renders the login page."""
     if api_token != API_TOKEN:
@@ -83,7 +88,7 @@ async def get_dashboard(request: Request, api_token: Optional[str] = Cookie(None
 async def do_login(request: Request, token: str = Form(...)):
     """Handles authentication and sets a cookie on success."""
     if token == API_TOKEN:
-        response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        response = RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
         # Set persistent token cookie (lasts for 30 days)
         response.set_cookie(key="api_token", value=API_TOKEN, max_age=30*24*60*60, httponly=True)
         return response
@@ -93,7 +98,7 @@ async def do_login(request: Request, token: str = Form(...)):
 @app.get("/logout")
 async def do_logout():
     """Logs out user by clearing the authentication cookie."""
-    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+    response = RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie("api_token")
     return response
 
@@ -968,7 +973,7 @@ async def get_studio_page(job_id: str, request: Request, api_token: Optional[str
         return templates.TemplateResponse(request, "login.html", {"error": None})
     job = Job.load(job_id)
     if not job:
-        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
     compositions = job.get_compositions()
     return templates.TemplateResponse(request, "studio.html", {
         "job": job, "api_token": API_TOKEN, "compositions": compositions,
@@ -1314,7 +1319,7 @@ async def get_clip_editor(job_id: str, clip_id: str, request: Request, api_token
         return templates.TemplateResponse(request, "login.html", {"error": None})
     job = Job.load(job_id)
     if not job:
-        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
     target = next((c for c in job.clips if c.id == clip_id), None)
     if not target:
         return RedirectResponse(url=f"/job/{job_id}", status_code=status.HTTP_303_SEE_OTHER)
@@ -1465,7 +1470,7 @@ async def get_job_detail_page(job_id: str, request: Request, api_token: Optional
         return templates.TemplateResponse(request, "login.html", {"error": None})
     job = Job.load(job_id)
     if not job:
-        return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
     return templates.TemplateResponse(request, "job_detail.html", {"job": job, "api_token": API_TOKEN})
 
 UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
