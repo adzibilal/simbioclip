@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}SimbioClip{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Google+Sans:ital,opsz,wght@0,17..18,400..700;1,17..18,400..700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/css/tokens.css">
+    <link rel="stylesheet" href="/static/css/components.css">
+    <link rel="stylesheet" href="/static/css/cards.css">
+    <link rel="stylesheet" href="/static/css/app-shell.css">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    {% block head_extra %}{% endblock %}
+</head>
+<body>
+<script>window.API_TOKEN = '{{ api_token }}';</script>
+    <div class="app-layout{% if sidebar_collapsed %} sidebar-collapsed{% endif %}{% if sidebar_collapsible %} sidebar-collapsible{% endif %}">
+        <div class="app-sidebar-overlay" id="app-sidebar-overlay"></div>
+        {% include "partials/sidebar.html" %}
+
+        <div class="app-main">
+            {% include "partials/topbar.html" %}
+            <main class="app-content{% if content_flush %} app-content--flush{% endif %}">
+                <div class="{% if not content_flush %}app-content-inner{% else %}app-content-full{% endif %}">
+                    {% block content %}{% endblock %}
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- Shared clip preview modal -->
+    <div class="modal" id="clip-modal" onclick="if(event.target===this) closeClipModal()">
+        <div class="modal-card">
+            <video class="modal-video" id="modal-video" controls playsinline></video>
+            <div class="modal-bar">
+                <span class="modal-title" id="modal-title">Clip preview</span>
+                <button class="modal-close" onclick="closeClipModal()" title="Close">×</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- YouTube Auth Modal -->
+    <div class="modal" id="cookies-modal" onclick="if(event.target===this) closeCookiesModal()">
+        <div class="modal-card" style="max-width: 500px;">
+            <div class="modal-head">
+                <div>
+                    <h2>YouTube Authentication</h2>
+                    <p id="yt-status-text">Checking connection…</p>
+                </div>
+                <button class="modal-close" onclick="closeCookiesModal()">×</button>
+            </div>
+            <div style="text-align:center; padding:8px 0;">
+                <div id="yt-connected-view" style="display:none;">
+                    <div style="font-size:44px; color:var(--brand-green-dark);">✓</div>
+                    <div style="font-weight:600; font-size:16px; margin:6px 0;">Connected</div>
+                    <div style="font-size:12px; color:var(--steel); margin-bottom:16px;" id="yt-cookie-info"></div>
+                    <button class="btn-secondary" onclick="refreshCookies()" id="yt-refresh-btn">Refresh from browser</button>
+                </div>
+                <div id="yt-disconnected-view" style="display:none;">
+                    <div style="font-size:44px; color:var(--steel);">✕</div>
+                    <div style="font-weight:600; font-size:16px; margin:6px 0;">Not connected</div>
+                    <div style="font-size:12px; color:var(--steel); margin-bottom:16px;">
+                        Paste cookies below or refresh if you've logged into Chrome on this server.
+                    </div>
+                    <button class="btn-secondary" onclick="refreshCookies()" id="yt-refresh-btn-dis">Try Chrome cookies</button>
+                </div>
+                <div id="yt-loading-view">
+                    <span class="spinner"></span> <span style="font-size:13px; color:var(--steel);">Checking…</span>
+                </div>
+            </div>
+            <details style="margin-top:8px;">
+                <summary style="cursor:pointer; font-size:12px; color:var(--steel); font-weight:600; text-align:center;">Cookie editor</summary>
+                <textarea id="cookies-textarea" style="width:100%; height:200px; font-family:var(--font-mono); font-size:11px; padding:10px; border:1px solid var(--hairline-strong); border-radius:8px; resize:vertical; outline:none; background:var(--surface); color:var(--ink); margin-top:8px;" placeholder="Paste Netscape-format cookies here..."></textarea>
+                <div style="display:flex; gap:10px; margin-top:10px; justify-content:flex-end;">
+                    <button class="btn-primary" onclick="saveCookies()" id="cookies-save-btn">Save cookies</button>
+                </div>
+            </details>
+        </div>
+    </div>
+
+    <!-- Repliz upload modal -->
+    <div class="modal" id="repliz-modal" onclick="if(event.target===this) closeReplizModal()">
+        <div class="modal-card" style="max-width:560px;">
+            <div class="modal-head">
+                <div>
+                    <h2>Upload to Repliz</h2>
+                    <p id="repliz-modal-subtitle">Schedule this clip to one or more connected accounts</p>
+                </div>
+                <button class="modal-close" onclick="closeReplizModal()">×</button>
+            </div>
+            <form id="repliz-form" onsubmit="submitReplizSchedule(event)" style="display:flex;flex-direction:column;gap:12px;">
+                <div class="settings-field">
+                    <div class="repliz-accounts-toolbar">
+                        <label for="repliz-accounts-list">Accounts</label>
+                        <span>
+                            <button type="button" onclick="replizSelectAllAccounts()">Select all</button>
+                            <span style="color:var(--hairline-strong);margin:0 6px;">·</span>
+                            <button type="button" onclick="replizClearAccounts()">Clear</button>
+                        </span>
+                    </div>
+                    <div id="repliz-accounts-list" class="repliz-accounts-list">
+                        <span style="font-size:13px;color:var(--steel);">Loading accounts…</span>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label for="repliz-schedule-at">Schedule at (local time)</label>
+                    <input type="datetime-local" id="repliz-schedule-at" required style="width:100%;padding:9px 12px;border:1px solid var(--hairline-strong);border-radius:8px;font-size:13px;">
+                </div>
+                <div class="settings-field">
+                    <label for="repliz-post-type">Post type</label>
+                    <select id="repliz-post-type" style="width:100%;padding:9px 12px;border:1px solid var(--hairline-strong);border-radius:8px;font-size:13px;">
+                        <option value="video">video</option>
+                        <option value="reel">reel</option>
+                        <option value="story">story</option>
+                    </select>
+                </div>
+                <div class="settings-field">
+                    <label for="repliz-title">Title</label>
+                    <input type="text" id="repliz-title" style="width:100%;padding:9px 12px;border:1px solid var(--hairline-strong);border-radius:8px;font-size:13px;">
+                </div>
+                <div class="settings-field">
+                    <label for="repliz-description">Caption / description</label>
+                    <textarea id="repliz-description" rows="3" style="width:100%;padding:9px 12px;border:1px solid var(--hairline-strong);border-radius:8px;font-size:13px;resize:vertical;"></textarea>
+                </div>
+                <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px;">
+                    <button type="button" class="btn-secondary" onclick="closeReplizModal()">Cancel</button>
+                    <button type="submit" class="btn-primary" id="repliz-submit-btn">Upload to Repliz</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="toast-notif" class="toast">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00B85C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>
+        </svg>
+        <span id="toast-message"></span>
+    </div>
+
+    <script>
+        function openClipModal(el) {
+            const url = el.getAttribute('data-url');
+            const title = el.getAttribute('data-title') || 'Clip preview';
+            const modal = document.getElementById('clip-modal');
+            const video = document.getElementById('modal-video');
+            document.getElementById('modal-title').innerText = title;
+            video.src = url;
+            modal.classList.add('open');
+            video.play().catch(() => {});
+        }
+        function closeClipModal() {
+            const modal = document.getElementById('clip-modal');
+            const video = document.getElementById('modal-video');
+            video.pause(); video.removeAttribute('src'); video.load();
+            modal.classList.remove('open');
+        }
+        function showToast(message, isError) {
+            const toast = document.getElementById('toast-notif');
+            document.getElementById('toast-message').innerText = message;
+            toast.style.borderLeftColor = isError ? 'var(--accent-pink)' : 'var(--brand-green-mid)';
+            toast.classList.add('show');
+            clearTimeout(window.__toastTimer);
+            window.__toastTimer = setTimeout(() => toast.classList.remove('show'), 4000);
+        }
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeClipModal(); });
+
+        function openCookiesModal() {
+            document.getElementById('cookies-modal').classList.add('open');
+            document.getElementById('cookies-textarea').value = '';
+            document.getElementById('yt-loading-view').style.display = 'block';
+            document.getElementById('yt-connected-view').style.display = 'none';
+            document.getElementById('yt-disconnected-view').style.display = 'none';
+            document.getElementById('yt-status-text').textContent = 'Checking connection…';
+            checkYtStatus();
+        }
+
+        function checkYtStatus() {
+            fetch('/api/auth/youtube', { headers: { 'Authorization': 'Bearer ' + '{{ api_token }}' } })
+                .then(r => r.json())
+                .then(d => {
+                    document.getElementById('yt-loading-view').style.display = 'none';
+                    if (d.connected) {
+                        document.getElementById('yt-status-text').textContent = 'Connected';
+                        document.getElementById('yt-connected-view').style.display = 'block';
+                        document.getElementById('yt-disconnected-view').style.display = 'none';
+                    } else {
+                        document.getElementById('yt-status-text').textContent = 'Not connected';
+                        document.getElementById('yt-connected-view').style.display = 'none';
+                        document.getElementById('yt-disconnected-view').style.display = 'block';
+                    }
+                })
+                .catch(() => {
+                    document.getElementById('yt-loading-view').style.display = 'none';
+                    document.getElementById('yt-disconnected-view').style.display = 'block';
+                });
+        }
+
+        function refreshCookies() {
+            const btn = document.getElementById('yt-refresh-btn') || document.getElementById('yt-refresh-btn-dis');
+            if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Refreshing…'; }
+            fetch('/api/auth/youtube/refresh', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + '{{ api_token }}' }
+            })
+                .then(r => r.json())
+                .then(d => {
+                    if (d.ok) {
+                        showToast('Cookies refreshed from Chrome (' + d.lines + ' lines)');
+                        checkYtStatus();
+                    } else {
+                        showToast('Could not refresh: ' + (d.detail || 'unknown error'));
+                    }
+                })
+                .catch(() => showToast('Refresh failed', true))
+                .finally(() => {
+                    if (btn) { btn.disabled = false; btn.textContent = btn.id === 'yt-refresh-btn' ? 'Refresh from browser' : 'Try Chrome cookies'; }
+                });
+        }
+
+        function closeCookiesModal() {
+            document.getElementById('cookies-modal').classList.remove('open');
+        }
+
+        function saveCookies() {
+            const btn = document.getElementById('cookies-save-btn');
+            const ta = document.getElementById('cookies-textarea');
+            btn.disabled = true; btn.textContent = 'Saving…';
+            const form = new FormData();
+            form.append('cookies', ta.value);
+            fetch('/api/update-cookies', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + '{{ api_token }}' },
+                body: form
+            })
+                .then(r => r.json().then(d => ({ ok: r.ok, data: d })))
+                .then(({ ok, data }) => {
+                    if (ok) {
+                        showToast('Cookies saved (' + data.lines + ' lines)');
+                        closeCookiesModal();
+                    } else {
+                        showToast(data.detail || 'Failed to save cookies', true);
+                    }
+                })
+                .catch(() => showToast('Network error', true))
+                .finally(() => { btn.disabled = false; btn.textContent = 'Save cookies'; });
+        }
+
+        document.body.addEventListener('htmx:beforeRequest', function (evt) {
+            const elt = evt.detail.elt;
+            if (!elt || !elt.querySelectorAll) return;
+            for (const v of elt.querySelectorAll('video')) {
+                if (!v.paused && !v.ended && v.currentTime > 0) { evt.preventDefault(); return; }
+            }
+        });
+
+        function requestNotifPermission() {
+            if (!("Notification" in window)) return;
+            if (Notification.permission === "default") Notification.requestPermission();
+        }
+        function sendNotif(title, body) {
+            if (!("Notification" in window) || Notification.permission !== "granted") return;
+            try {
+                const n = new Notification(title, { body: body, icon: "/favicon.ico" });
+                setTimeout(function() { n.close(); }, 8000);
+            } catch(e) {}
+        }
+        requestNotifPermission();
+
+        var _replizState = { jobId: '', clipId: '', scheduledAccountIds: [] };
+        var _replizAccounts = [];
+
+        function openReplizModal(jobId, clipId, title, description, scheduledAccountIds) {
+            _replizState = {
+                jobId: jobId,
+                clipId: clipId,
+                scheduledAccountIds: scheduledAccountIds || [],
+            };
+            document.getElementById('repliz-title').value = title || '';
+            document.getElementById('repliz-description').value = description || '';
+            const dt = new Date(Date.now() + 5 * 60 * 1000);
+            dt.setSeconds(0, 0);
+            const pad = n => String(n).padStart(2, '0');
+            document.getElementById('repliz-schedule-at').value =
+                dt.getFullYear() + '-' + pad(dt.getMonth()+1) + '-' + pad(dt.getDate()) +
+                'T' + pad(dt.getHours()) + ':' + pad(dt.getMinutes());
+            document.getElementById('repliz-modal').style.display = 'flex';
+            loadReplizAccounts();
+        }
+
+        function closeReplizModal() {
+            document.getElementById('repliz-modal').style.display = '';
+        }
+
+        function replizAccountLabel(account) {
+            return (account.name || account.username || account._id) +
+                ' (' + (account.type || '?') + ')';
+        }
+
+        function renderReplizAccountsList() {
+            const box = document.getElementById('repliz-accounts-list');
+            const scheduled = new Set(_replizState.scheduledAccountIds || []);
+            if (!_replizAccounts.length) {
+                box.innerHTML = '<span style="font-size:13px;color:var(--steel);">No accounts — connect accounts in Repliz first</span>';
+                return;
+            }
+            box.innerHTML = _replizAccounts.map(function(a) {
+                const id = a._id;
+                const isScheduled = scheduled.has(id);
+                const checked = isScheduled ? '' : ' checked';
+                return '<label class="repliz-account-option' + (isScheduled ? ' is-scheduled' : '') + '">' +
+                    '<input type="checkbox" name="repliz-account" value="' + id + '"' +
+                    (isScheduled ? ' disabled' : '') + checked + ' data-name="' +
+                    (a.name || a.username || '').replace(/"/g, '&quot;') + '">' +
+                    '<span class="repliz-account-meta">' +
+                    '<span class="repliz-account-name">' + replizAccountLabel(a) + '</span>' +
+                    '</span>' +
+                    (isScheduled ? '<span class="repliz-account-badge">Scheduled</span>' : '') +
+                    '</label>';
+            }).join('');
+        }
+
+        function replizSelectAllAccounts() {
+            document.querySelectorAll('#repliz-accounts-list input[name="repliz-account"]:not(:disabled)').forEach(function(el) {
+                el.checked = true;
+            });
+        }
+
+        function replizClearAccounts() {
+            document.querySelectorAll('#repliz-accounts-list input[name="repliz-account"]:not(:disabled)').forEach(function(el) {
+                el.checked = false;
+            });
+        }
+
+        function loadReplizAccounts() {
+            const box = document.getElementById('repliz-accounts-list');
+            box.innerHTML = '<span style="font-size:13px;color:var(--steel);">Loading accounts…</span>';
+            fetch('/api/repliz/accounts', { credentials: 'same-origin' })
+                .then(r => r.json().then(d => ({ ok: r.ok, d })))
+                .then(({ ok, d }) => {
+                    if (!ok) throw new Error(d.detail || 'Failed to load accounts');
+                    _replizAccounts = d.docs || [];
+                    renderReplizAccountsList();
+                })
+                .catch(e => {
+                    box.innerHTML = '<span style="font-size:13px;color:var(--accent-pink);">' + (e.message || 'Error') + '</span>';
+                    showToast(e.message || 'Failed to load Repliz accounts', true);
+                });
+        }
+
+        function submitReplizSchedule(e) {
+            e.preventDefault();
+            const btn = document.getElementById('repliz-submit-btn');
+            const checked = Array.from(document.querySelectorAll('#repliz-accounts-list input[name="repliz-account"]:checked:not(:disabled)'));
+            if (!checked.length) {
+                showToast('Select at least one account', true);
+                return;
+            }
+            btn.disabled = true;
+            btn.textContent = 'Uploading…';
+            const localVal = document.getElementById('repliz-schedule-at').value;
+            const scheduleAt = new Date(localVal).toISOString();
+            const accountNames = {};
+            checked.forEach(function(el) {
+                accountNames[el.value] = el.getAttribute('data-name') || el.value;
+            });
+            const payload = {
+                account_ids: checked.map(function(el) { return el.value; }),
+                account_names: accountNames,
+                schedule_at: scheduleAt,
+                post_type: document.getElementById('repliz-post-type').value,
+                title: document.getElementById('repliz-title').value,
+                description: document.getElementById('repliz-description').value,
+            };
+            fetch('/api/jobs/' + _replizState.jobId + '/clips/' + _replizState.clipId + '/repliz/schedule', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+                .then(r => r.json().then(d => ({ ok: r.ok, d })))
+                .then(({ ok, d }) => {
+                    if (!ok) throw new Error(d.detail || 'Upload failed');
+                    const body = document.getElementById('job-detail-body');
+                    if (body && d.html) body.innerHTML = d.html;
+                    closeReplizModal();
+                    const count = (d.scheduled || []).length;
+                    const extra = (d.errors || []).length ? ' (' + d.errors.length + ' skipped)' : '';
+                    showToast('Uploaded to Repliz · ' + count + ' account' + (count === 1 ? '' : 's') + extra);
+                })
+                .catch(err => showToast(err.message || 'Upload failed', true))
+                .finally(() => { btn.disabled = false; btn.textContent = 'Upload to Repliz'; });
+        }
+    </script>
+    <script src="/static/js/app-shell.js"></script>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,200 @@
+{% extends "layouts/app_shell.html" %}
+{% block title %}SimbioClip — New Project{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/new-project.css">
+{% endblock %}
+
+{% set breadcrumbs = [
+    {"label": "Projects", "href": "/app"},
+    {"label": "New Project"}
+] %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>New Project</h1>
+        <p>Submit a video URL or upload a file to start clipping.</p>
+    </div>
+</div>
+
+<div class="new-project-card">
+<form id="clipping-form"
+                  hx-post="/jobs"
+                  hx-encoding="multipart/form-data"
+                  hx-swap="none"
+                  hx-on::before-request="document.querySelector('#submit-btn').disabled = true; document.querySelector('#submit-btn-text').innerText = 'Enqueuing…';"
+                  hx-on::after-request="handleFormSuccess(event); document.querySelector('#submit-btn').disabled = false; document.querySelector('#submit-btn-text').innerText = 'Extract clips';">
+
+                <div class="create-layout">
+                    <div class="create-preview">
+                        <div class="preview-frame" id="preview-frame">
+                            <div class="preview-placeholder" id="preview-placeholder">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect>
+                                </svg>
+                                <span>Preview</span>
+                            </div>
+                            <iframe id="yt-preview" width="100%" height="100%" frameborder="0"
+                                    allow="autoplay; encrypted-media" allowfullscreen
+                                    style="display:none; border-radius:10px;"></iframe>
+                        </div>
+                        <div class="preview-meta" id="preview-meta" style="display:none;">
+                            <div class="title" id="preview-title"></div>
+                            <div class="meta" id="preview-duration"></div>
+                        </div>
+
+                        <div id="timeline-section" style="display:none;">
+                            <div class="timeline-labels">
+                                <span id="start-label">0:00</span>
+                                <span id="range-label">Full video</span>
+                                <span id="end-label">0:00</span>
+                            </div>
+                            <div class="timeline-wrap">
+                                <span class="timeline-min">0</span>
+                                <span class="timeline-max" id="timeline-max-label">0</span>
+                                <div class="timeline-track">
+                                    <div class="timeline-fill" id="timeline-fill" style="left:0%;width:100%;"></div>
+                                </div>
+                                <div class="timeline-thumb" id="thumb-start" style="left:0%;"></div>
+                                <div class="timeline-thumb" id="thumb-end" style="left:100%;"></div>
+                                <div class="timeline-sliders">
+                                    <input type="range" id="clip_start_slider" min="0" max="100" value="0" step="1" oninput="onStartSlide()">
+                                    <input type="range" id="clip_end_slider" min="0" max="100" value="100" step="1" oninput="onEndSlide()">
+                                </div>
+                            </div>
+                            <input type="hidden" name="clip_start" id="clip_start" value="0">
+                            <input type="hidden" name="clip_end" id="clip_end" value="0">
+                        </div>
+                    </div>
+
+                    <div class="create-form">
+                        <div class="form-group" style="margin:0;">
+                            <label for="source_url">Video URL</label>
+                            <div style="display:flex; gap:8px;">
+                                <input type="url" name="source_url" id="source_url" class="text-input"
+                                       placeholder="https://youtube.com/watch?v=…" autocomplete="off" style="flex:1;">
+                                <button type="button" class="btn-secondary" id="preview-btn"
+                                        onclick="previewVideo()" style="white-space:nowrap;font-size:13px;padding:7px 14px;">Preview</button>
+                            </div>
+                        </div>
+
+                        <div class="loading-overlay" id="preview-loading">
+                            <span class="spinner"></span> Fetching video info…
+                        </div>
+
+                        <div class="or-divider" style="margin:2px 0;">or upload file</div>
+
+                        <div class="form-group" style="margin:0;">
+                            <label>Raw video file</label>
+                            <div class="file-upload-area" style="padding:10px 12px;">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line>
+                                </svg>
+                                <span style="font-size:12px;">Choose a video file</span>
+                                <input type="file" name="file" class="file-upload-input" id="file-input" accept="video/*">
+                            </div>
+                            <div class="file-selected-info" id="file-info-box">
+                                <span class="name" id="file-name-display"></span>
+                                <span class="remove" onclick="clearFileInput()">×</span>
+                            </div>
+                        </div>
+
+                        <div class="form-group" style="margin:0;">
+                            <label for="max_clips">Max clips</label>
+                            <div class="slider-container">
+                                <input type="range" name="max_clips" id="max_clips" min="1" max="15" value="5" oninput="document.getElementById('clips-val').innerText = this.value">
+                                <div class="slider-val" id="clips-val">5</div>
+                            </div>
+                        </div>
+
+                        <button type="button" class="create-advanced-toggle" onclick="toggleAdvanced()" id="adv-toggle">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            Advanced options
+                        </button>
+
+                        <div class="create-advanced" id="create-advanced">
+                            <div>
+                                <div class="form-group">
+                                    <label for="layout_mode">Layout</label>
+                                    <select name="layout_mode" id="layout_mode" class="text-input">
+                                        <option value="auto">Auto</option>
+                                        <option value="game_stream">Game Stream</option>
+                                        <option value="podcast" selected>Podcast</option>
+                                        <option value="talking_head">Talking Head</option>
+                                        <option value="center_crop">Center Crop</option>
+                                        <option value="bg_blur">BG Blur</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="aspect_ratio">Ratio</label>
+                                    <select name="aspect_ratio" id="aspect_ratio" class="text-input">
+                                        <option value="9:16">9:16</option>
+                                        <option value="1:1">1:1</option>
+                                        <option value="4:5">4:5</option>
+                                        <option value="16:9">16:9</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="lang">Lang</label>
+                                    <select name="lang" id="lang" class="text-input">
+                                        <option value="">Auto</option>
+                                        <option value="id" selected>ID</option>
+                                        <option value="en">EN</option>
+                                        <option value="es">ES</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="caption_style">Caption</label>
+                                    <select name="caption_style" id="caption_style" class="text-input">
+                                        <option value="bold_pop">Bold Pop</option>
+                                        <option value="karaoke_highlight" selected>Karaoke</option>
+                                        <option value="neon">Neon</option>
+                                        <option value="minimal">Minimal</option>
+                                        <option value="podcast">Podcast</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="clip_duration">Duration</label>
+                                    <select name="clip_duration" id="clip_duration" class="text-input">
+                                        <option value="auto">Auto</option>
+                                        <option value="10-15">10–15s</option>
+                                        <option value="15-30">15–30s</option>
+                                        <option value="30-45">30–45s</option>
+                                        <option value="45-60" selected>45–60s</option>
+                                        <option value="60-90">60–90s</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="download_resolution">Res</label>
+                                    <select name="download_resolution" id="download_resolution" class="text-input">
+                                        <option value="best">Best</option>
+                                        <option value="2160p">4K</option>
+                                        <option value="1440p">1440p</option>
+                                        <option value="1080p" selected>1080p</option>
+                                        <option value="720p">720p</option>
+                                        <option value="480p">480p</option>
+                                        <option value="360p">360p</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div style="display:flex; gap:16px; flex-wrap:wrap; margin-top:6px;">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn-primary" id="submit-btn" style="width:100%;margin-top:2px;padding:10px 18px;font-size:14px;">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                            </svg>
+                            <span id="submit-btn-text">Extract clips</span>
+                        </button>
+                    </div>
+                </div>
+            </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>window.API_TOKEN = '{{ api_token }}';</script>
+<script src="/static/js/new-project.js"></script>
+{% endblock %}

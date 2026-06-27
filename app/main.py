@@ -15,11 +15,16 @@ from fastapi.templating import Jinja2Templates
 from redis import Redis
 from rq import Queue
 
-from app.config import API_TOKEN, REDIS_URL, DATA_DIR, COOKIES_FILE
+from app.config import REDIS_URL, DATA_DIR
+from app.settings_store import (
+    get_settings,
+    settings_to_public_dict,
+)
 from app.models import Job, Clip, ClipCropOverrides, ClipSubtitleEdit, SubtitleStyleOverrides, Composition, CompositionClip, PIPELINE_STEPS, CLIP_DURATION_PRESETS
 from app.pipeline.orchestrator import process_video_job, reset_job_step
 from app.pipeline.render import render_job_clips, render_one_clip, CAPTION_STYLES
 from app.pipeline.download import download_job_video
+import app.writable_config as user_config
 
 # Configure logger
 logger = logging.getLogger("simbioclip.api")
@@ -29,6 +34,16 @@ app = FastAPI(title="SimbioClip API", version="1.0.0")
 
 # Setup template renderer
 templates = Jinja2Templates(directory=os.path.join(os.path.dirname(__file__), "templates"))
+
+_STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=_STATIC_DIR), name="static")
+
+
+def _auth_page_context(api_token: Optional[str]) -> Optional[dict]:
+    """Return shared template context for authenticated pages, or None if unauthorized."""
+    if api_token != get_settings().api_token:
+        return None
+    return {"api_token": get_settings().api_token}
 
 def render_template_str(template_name: str, **kwargs) -> str:
     """Renders a Jinja2 template to string (no Request object needed)."""
@@ -49,19 +64,20 @@ def verify_token(
     Verifies that the request has the correct API token.
     Checks Bearer header, URL query param, and Cookies.
     """
+    expected = get_settings().api_token
     # 1. Check Bearer Authorization Header
     if authorization and authorization.startswith("Bearer "):
         provided_token = authorization.split(" ")[1]
-        if provided_token == API_TOKEN:
-            return API_TOKEN
+        if provided_token == expected:
+            return expected
 
     # 2. Check Query parameter
-    if token == API_TOKEN:
-        return API_TOKEN
+    if token == expected:
+        return expected
 
     # 3. Check Cookie (useful for browser dashboard)
-    if api_token == API_TOKEN:
-        return API_TOKEN
+    if api_token == expected:
+        return expected
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
@@ -69,6 +85,11 @@ def verify_token(
     )
 
 # HTML routes
+@app.get("/favicon.ico")
+async def favicon():
+    return Response(status_code=204)
+
+
 @app.get("/", response_class=HTMLResponse)
 async def get_landing_page(request: Request):
     """Renders the public landing page."""
@@ -76,21 +97,33 @@ async def get_landing_page(request: Request):
 
 @app.get("/app", response_class=HTMLResponse)
 async def get_dashboard(request: Request, api_token: Optional[str] = Cookie(None)):
-    """Renders the dashboard index page if logged in, else renders the login page."""
-    if api_token != API_TOKEN:
+    """Renders the projects dashboard if logged in, else renders the login page."""
+    ctx = _auth_page_context(api_token)
+    if not ctx:
         return templates.TemplateResponse(request, "login.html", {"error": None})
-    
-    # Load all jobs to display in dashboard
-    jobs = Job.get_all()
-    return templates.TemplateResponse(request, "index.html", {"jobs": jobs, "api_token": API_TOKEN})
+    return templates.TemplateResponse(request, "dashboard.html", {
+        **ctx,
+        "nav_active": "projects",
+    })
+
+
+@app.get("/app/new", response_class=HTMLResponse)
+async def get_new_project_page(request: Request, api_token: Optional[str] = Cookie(None)):
+    ctx = _auth_page_context(api_token)
+    if not ctx:
+        return templates.TemplateResponse(request, "login.html", {"error": None})
+    return templates.TemplateResponse(request, "new_project.html", {
+        **ctx,
+        "nav_active": "new",
+    })
 
 @app.post("/login")
 async def do_login(request: Request, token: str = Form(...)):
     """Handles authentication and sets a cookie on success."""
-    if token == API_TOKEN:
+    if token == get_settings().api_token:
         response = RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
         # Set persistent token cookie (lasts for 30 days)
-        response.set_cookie(key="api_token", value=API_TOKEN, max_age=30*24*60*60, httponly=True)
+        response.set_cookie(key="api_token", value=get_settings().api_token, max_age=30*24*60*60, httponly=True)
         return response
     
     return templates.TemplateResponse(request, "login.html", {"error": "Invalid Token"})
@@ -101,6 +134,258 @@ async def do_logout():
     response = RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
     response.delete_cookie("api_token")
     return response
+
+
+# --- Settings ---
+
+@app.get("/app/settings", response_class=HTMLResponse)
+async def get_settings_page(request: Request, api_token: Optional[str] = Cookie(None)):
+    ctx = _auth_page_context(api_token)
+    if not ctx:
+        return templates.TemplateResponse(request, "login.html", {"error": None})
+    return templates.TemplateResponse(request, "settings.html", {
+        **ctx,
+        "nav_active": "settings",
+    })
+
+
+@app.get("/api/settings")
+async def api_get_settings(_: str = Depends(verify_token)):
+    return user_config.load()
+
+
+@app.put("/api/settings")
+async def api_update_settings(body: dict, _: str = Depends(verify_token)):
+    current = user_config.load()
+    for k, v in body.items():
+        if k in ("ai_providers", "watermark", "credit_watermark", "hook_style") and isinstance(v, dict):
+            current[k] = dict(current.get(k, {}))
+            current[k].update(v)
+        else:
+            current[k] = v
+    user_config.save(current)
+    from app.settings_store import refresh_settings
+    refresh_settings()
+    from app.pipeline.llm import invalidate_provider_cache
+    invalidate_provider_cache()
+    return {"ok": True}
+
+
+@app.post("/api/settings/refresh")
+async def api_refresh_settings(_: str = Depends(verify_token)):
+    from app.settings_store import refresh_settings
+    refresh_settings()
+    from app.pipeline.llm import invalidate_provider_cache
+    invalidate_provider_cache()
+    return {"ok": True}
+
+
+@app.post("/api/settings/test-provider")
+async def api_test_provider(body: dict, _: str = Depends(verify_token)):
+    base_url = body.get("base_url", "").rstrip("/")
+    api_key = body.get("api_key", "")
+    if not base_url:
+        raise HTTPException(status_code=400, detail="base_url is required")
+    try:
+        from openai import OpenAI
+        client = OpenAI(base_url=base_url, api_key=api_key, timeout=15, max_retries=0)
+        models = client.models.list()
+        names = sorted([m.id for m in models])
+        return {"ok": True, "models": names[:50]}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/settings/upload-watermark")
+async def api_upload_watermark(file: UploadFile = File(...), _: str = Depends(verify_token)):
+    if not file.filename or not file.filename.lower().endswith(".png"):
+        raise HTTPException(status_code=400, detail="Only PNG files are accepted")
+    watermarks_dir = os.path.join(DATA_DIR, "watermarks")
+    os.makedirs(watermarks_dir, exist_ok=True)
+    dest = os.path.join(watermarks_dir, "watermark.png")
+    with open(dest, "wb") as f:
+        while chunk := await file.read(1024 * 1024):
+            f.write(chunk)
+    cfg = user_config.load()
+    cfg["watermark"]["image_path"] = dest
+    user_config.save(cfg)
+    logger.info(f"Watermark uploaded to {dest}")
+    return {"ok": True, "path": dest}
+
+
+@app.post("/api/settings/test-s3")
+async def api_test_s3(_: str = Depends(verify_token)):
+    settings = get_settings()
+    from app.integrations.s3_uploader import S3Config, S3Uploader
+    s3_config = S3Config(
+        endpoint=settings.aws_endpoint,
+        access_key=settings.aws_access_key_id,
+        secret_key=settings.aws_secret_access_key,
+        bucket=settings.aws_bucket,
+        region=settings.aws_region,
+        use_path_style=settings.aws_use_path_style,
+        folder_name=settings.aws_folder_name,
+    )
+    if not s3_config.is_configured:
+        raise HTTPException(status_code=400, detail="S3 not configured. Set endpoint, keys, and bucket.")
+    uploader = S3Uploader(s3_config)
+    ok, msg = uploader.test_connection()
+    if not ok:
+        raise HTTPException(status_code=400, detail=msg)
+    return {"ok": True, "message": msg}
+
+
+@app.post("/api/settings/test-repliz")
+async def api_test_repliz(_: str = Depends(verify_token)):
+    settings = get_settings()
+    if not settings.repliz_access_key or not settings.repliz_secret_key:
+        raise HTTPException(status_code=400, detail="Repliz access key and secret key are required")
+    from app.integrations.repliz import ReplizClient, ReplizError
+    try:
+        client = ReplizClient(settings.repliz_access_key, settings.repliz_secret_key)
+        result = client.account_count()
+        return {"ok": True, "accounts": result}
+    except ReplizError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/settings/test-llm")
+async def api_test_llm(_: str = Depends(verify_token)):
+    from app.pipeline.llm import llm_client
+    try:
+        content = llm_client.get_completion([
+            {"role": "user", "content": "Reply with exactly: ok"},
+        ], temperature=0)
+        return {"ok": True, "response": (content or "")[:200]}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/jobs/{job_id}/clips/{clip_id}/repliz/generate-metadata")
+async def api_generate_repliz_metadata(
+    job_id: str,
+    clip_id: str,
+    _: str = Depends(verify_token),
+):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    snippet = ""
+    segments_path = os.path.join(DATA_DIR, "jobs", job_id, "segments_raw.json")
+    if os.path.exists(segments_path):
+        try:
+            with open(segments_path) as f:
+                all_segs = json.load(f)
+            clip_segs = [s for s in all_segs if s.get("start", 0) >= target.start and s.get("end", 0) <= target.end]
+            snippet = " ".join(s.get("text", "") for s in clip_segs[:20])
+        except Exception:
+            pass
+
+    from app.pipeline.llm import llm_client
+    prompt = f"""Generate a catchy social media post title and description for this short video clip.
+
+Video Title: {target.title or ""}
+Hook: {target.hook or ""}
+Transcript snippet: {snippet[:1000]}
+
+Requirements:
+- Title: Max 100 characters, engaging and clickable
+- Description: 2-3 sentences, include relevant hashtags, max 300 chars
+
+Return valid JSON only: {{"title": "...", "description": "..."}}"""
+
+    try:
+        content = llm_client.get_completion([
+            {"role": "system", "content": "You are a social media expert who creates viral content. Return valid JSON."},
+            {"role": "user", "content": prompt},
+        ], temperature=0.7, response_format={"type": "json_object"})
+        if not content:
+            raise HTTPException(status_code=500, detail="LLM returned empty response")
+        result = json.loads(content)
+        return {
+            "title": (result.get("title") or target.title or "")[:100],
+            "description": (result.get("description") or target.hook or target.title or "")[:300],
+        }
+    except json.JSONDecodeError:
+        return {"title": target.title or "", "description": target.hook or target.title or ""}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"AI generation failed: {e}")
+
+
+# --- Repliz ---
+
+@app.get("/api/repliz/accounts")
+async def api_repliz_accounts(_: str = Depends(verify_token)):
+    settings = get_settings()
+    if not settings.repliz_access_key or not settings.repliz_secret_key:
+        raise HTTPException(status_code=400, detail="Repliz credentials not configured")
+    from app.integrations.repliz import ReplizClient, ReplizError
+    try:
+        client = ReplizClient(settings.repliz_access_key, settings.repliz_secret_key)
+        return client.list_accounts(page=1, limit=50)
+    except ReplizError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/jobs/{job_id}/clips/{clip_id}/repliz/schedule")
+async def api_schedule_clip_repliz(
+    job_id: str,
+    clip_id: str,
+    request: Request,
+    _: str = Depends(verify_token),
+):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    target = next((c for c in job.clips if c.id == clip_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    body = await request.json()
+    account_ids = body.get("account_ids") or []
+    if not account_ids:
+        single = body.get("account_id") or get_settings().repliz_default_account_id
+        if single:
+            account_ids = [single]
+    schedule_at_str = body.get("schedule_at")
+    if not account_ids:
+        raise HTTPException(status_code=400, detail="Select at least one Repliz account")
+    if not schedule_at_str:
+        raise HTTPException(status_code=400, detail="schedule_at is required")
+
+    from datetime import datetime, timezone
+    from app.integrations.repliz import ReplizError
+    from app.integrations.repliz_schedule import schedule_clip_to_accounts
+
+    try:
+        schedule_at = datetime.fromisoformat(schedule_at_str.replace("Z", "+00:00"))
+        if schedule_at.tzinfo is None:
+            schedule_at = schedule_at.replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid schedule_at datetime")
+
+    try:
+        result = schedule_clip_to_accounts(
+            target,
+            job,
+            account_ids=account_ids,
+            schedule_at=schedule_at,
+            post_type=body.get("post_type"),
+            title=body.get("title"),
+            description=body.get("description"),
+            tags=body.get("tags"),
+            account_names=body.get("account_names") or {},
+        )
+    except ReplizError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
+    return {"ok": True, **result, "html": html}
+
 
 # WebSocket — real-time job updates
 @app.websocket("/ws/job/{job_id}")
@@ -118,12 +403,12 @@ async def websocket_job_updates(websocket: WebSocket, job_id: str):
                     last_status = job.status
                     last_clips_len = len(job.clips)
                     last_updated_at = job.updated_at
-                    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+                    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
                     await websocket.send_text(html)
                 if job.status in ("done", "failed"):
                     await asyncio.sleep(1)
                     # Send final update, then close
-                    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+                    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
                     try:
                         await websocket.send_text(html)
                     except Exception:
@@ -143,7 +428,7 @@ async def websocket_job_updates(websocket: WebSocket, job_id: str):
 # SSE — real-time pipeline log streaming
 @app.get("/api/jobs/{job_id}/logs/stream")
 async def stream_job_logs(job_id: str, api_token: Optional[str] = Cookie(None)):
-    if api_token != API_TOKEN:
+    if api_token != get_settings().api_token:
         return HTMLResponse("Unauthorized", status_code=401)
     job = Job.load(job_id)
     if not job:
@@ -232,11 +517,11 @@ async def preview_video(source_url: str = Form(...), _: str = Depends(verify_tok
             "--no-playlist", "--quiet", "--no-warnings",
             "--js-runtimes", "node",
         ]
-        if COOKIES_FILE and os.path.exists(COOKIES_FILE):
-            with open(COOKIES_FILE) as _f:
+        if get_settings().cookies_file and os.path.exists(get_settings().cookies_file):
+            with open(get_settings().cookies_file) as _f:
                 _content = _f.read()
             if any(_line.strip() and '\t' in _line for _line in _content.splitlines()):
-                cmd += ["--cookies", COOKIES_FILE]
+                cmd += ["--cookies", get_settings().cookies_file]
         cmd.append(source_url)
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=90)
         if result.returncode != 0:
@@ -260,6 +545,8 @@ async def preview_video(source_url: str = Form(...), _: str = Depends(verify_tok
             "webpage_url": webpage_url,
             "video_id": _extract_youtube_id(webpage_url),
             "available_resolutions": available_res,
+            "channel": data.get("channel") or data.get("uploader") or "",
+            "channel_url": data.get("channel_url") or data.get("uploader_url") or "",
         }
     except Exception as e:
         logger.error(f"Preview failed for {source_url}: {e}")
@@ -268,10 +555,10 @@ async def preview_video(source_url: str = Form(...), _: str = Depends(verify_tok
 @app.get("/api/cookies")
 async def get_cookies(_: str = Depends(verify_token)):
     """Return current cookies file content."""
-    if not COOKIES_FILE or not os.path.exists(COOKIES_FILE):
+    if not get_settings().cookies_file or not os.path.exists(get_settings().cookies_file):
         return {"cookies": ""}
     try:
-        with open(COOKIES_FILE) as f:
+        with open(get_settings().cookies_file) as f:
             content = f.read()
         return {"cookies": content}
     except Exception as e:
@@ -280,15 +567,15 @@ async def get_cookies(_: str = Depends(verify_token)):
 @app.post("/api/update-cookies")
 async def update_cookies(cookies: str = Form(...), _: str = Depends(verify_token)):
     """Save new cookies content to the cookies file."""
-    if not COOKIES_FILE:
-        raise HTTPException(status_code=500, detail="COOKIES_FILE path not configured")
+    if not get_settings().cookies_file:
+        raise HTTPException(status_code=500, detail="get_settings().cookies_file path not configured")
     lines = cookies.strip().splitlines()
     has_netscape = any("# Netscape" in line for line in lines)
     has_youtube = any(".youtube.com" in line for line in lines)
     if not has_netscape or not has_youtube:
         raise HTTPException(status_code=400, detail="Invalid cookies format. Expected Netscape format with .youtube.com entries.")
     try:
-        with open(COOKIES_FILE, "w") as f:
+        with open(get_settings().cookies_file, "w") as f:
             f.write(cookies)
         logger.info(f"Cookies updated ({len(lines)} lines)")
         return {"ok": True, "lines": len(lines)}
@@ -325,27 +612,27 @@ def _test_cookies(filepath: str) -> bool:
 @app.get("/api/auth/youtube")
 async def auth_youtube_check(_: str = Depends(verify_token)):
     """Check YouTube connection status."""
-    return {"connected": _test_cookies(COOKIES_FILE)}
+    return {"connected": _test_cookies(get_settings().cookies_file)}
 
 
 @app.post("/api/auth/youtube/refresh")
 async def auth_youtube_refresh(_: str = Depends(verify_token)):
     """Re-extract cookies from Chrome profile (if user logged in there)."""
-    if not COOKIES_FILE:
-        raise HTTPException(status_code=500, detail="COOKIES_FILE not configured")
+    if not get_settings().cookies_file:
+        raise HTTPException(status_code=500, detail="get_settings().cookies_file not configured")
     result = subprocess.run(
         [
             "yt-dlp",
             "--cookies-from-browser", f"chrome:{CHROME_PROFILE}",
-            "--cookies", COOKIES_FILE,
+            "--cookies", get_settings().cookies_file,
             "--skip-download", "--quiet",
             "--print", "title",
             "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
         ],
         capture_output=True, text=True, timeout=30,
     )
-    if result.returncode == 0 and _test_cookies(COOKIES_FILE):
-        with open(COOKIES_FILE) as f:
+    if result.returncode == 0 and _test_cookies(get_settings().cookies_file):
+        with open(get_settings().cookies_file) as f:
             lines = len(f.read().strip().splitlines())
         logger.info(f"Cookies refreshed from Chrome ({lines} lines)")
         return {"ok": True, "lines": lines}
@@ -361,12 +648,10 @@ async def create_job(
     lang: Optional[str] = Form(None),
     layout_mode: str = Form("auto"),
     aspect_ratio: str = Form("9:16"),
-    audio_ducking: bool = Form(False),
     clip_start: Optional[float] = Form(None),
     clip_end: Optional[float] = Form(None),
     caption_style: str = Form("bold_pop"),
     clip_duration: str = Form("auto"),
-    dense_cut: bool = Form(False),
     download_resolution: str = Form("1080p"),
     _: str = Depends(verify_token)
 ):
@@ -406,9 +691,9 @@ async def create_job(
 
     job_id = str(uuid.uuid4())
     job = Job(id=job_id, max_clips=max_clips, lang=lang, layout_mode=layout_mode,
-              aspect_ratio=aspect_ratio, audio_ducking=audio_ducking,
+              aspect_ratio=aspect_ratio,
               clip_start=clip_start, clip_end=clip_end,
-              caption_style=caption_style, clip_duration=clip_duration, dense_cut=dense_cut,
+              caption_style=caption_style, clip_duration=clip_duration,
               download_resolution=download_resolution)
     
     # Setup job directory
@@ -553,7 +838,7 @@ async def cancel_job(job_id: str, _: str = Depends(verify_token)):
     except Exception as e:
         logger.warning(f"Failed to cancel RQ job for {job_id}: {e}")
 
-    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
     return HTMLResponse(html)
 
 @app.post("/jobs/{job_id}/retry")
@@ -611,7 +896,7 @@ async def retry_job_step(job_id: str, step: str, _: str = Depends(verify_token))
     job_queue.enqueue(process_video_job, job_id, job_timeout="2h")
     logger.info(f"Re-enqueued job {job_id} from step '{step}'")
 
-    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
     return HTMLResponse(html)
 
 
@@ -673,7 +958,7 @@ async def rerender_job(job_id: str, _: str = Depends(verify_token)):
         job.error = str(e)
 
     job.save()
-    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
     return HTMLResponse(html)
 
 
@@ -708,7 +993,7 @@ async def update_clip_meta(
     if changed:
         job.save()
         logger.info(f"Updated metadata for clip {clip_id}")
-    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
     return HTMLResponse(html)
 
 
@@ -783,7 +1068,7 @@ async def rerender_one_clip(
         logger.exception(f"Per-clip rerender failed for {clip_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Render failed: {e}")
 
-    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
     return HTMLResponse(html)
 
 
@@ -862,7 +1147,7 @@ async def trim_clip(
     target.duration = round(rel_duration, 2)
     job.save()
     logger.info(f"Trimmed clip {clip_id} to [{trim_start:.1f}s – {trim_end:.1f}s]")
-    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
     return HTMLResponse(html)
 
 
@@ -877,7 +1162,7 @@ async def toggle_clip_favorite(job_id: str, clip_id: str, _: str = Depends(verif
         raise HTTPException(status_code=404, detail="Clip not found")
     target.favorite = not target.favorite
     job.save()
-    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
     return HTMLResponse(html)
 
 
@@ -967,17 +1252,26 @@ async def get_clip_thumbnail(job_id: str, clip_id: str, _: str = Depends(verify_
 
 # --- Studio (crop + subtitle + composition) ---
 
-@app.get("/job/{job_id}/studio", response_class=HTMLResponse)
+@app.get("/app/jobs/{job_id}/studio", response_class=HTMLResponse)
 async def get_studio_page(job_id: str, request: Request, api_token: Optional[str] = Cookie(None)):
-    if api_token != API_TOKEN:
+    ctx = _auth_page_context(api_token)
+    if not ctx:
         return templates.TemplateResponse(request, "login.html", {"error": None})
     job = Job.load(job_id)
     if not job:
         return RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
     compositions = job.get_compositions()
     return templates.TemplateResponse(request, "studio.html", {
-        "job": job, "api_token": API_TOKEN, "compositions": compositions,
+        **ctx,
+        "job": job,
+        "compositions": compositions,
+        "nav_active": "studio",
     })
+
+
+@app.get("/job/{job_id}/studio", response_class=HTMLResponse)
+async def redirect_studio_page(job_id: str):
+    return RedirectResponse(url=f"/app/jobs/{job_id}/studio", status_code=status.HTTP_301_MOVED_PERMANENTLY)
 
 MIME_MAP = {
     ".mp4": "video/mp4", ".mov": "video/quicktime",
@@ -1102,7 +1396,7 @@ async def save_crop_overrides(
         logger.exception(f"Crop re-render failed for {clip_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Render failed: {e}")
 
-    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
     return HTMLResponse(html)
 
 @app.get("/job/{job_id}/clips/{clip_id}/subtitles")
@@ -1313,16 +1607,17 @@ async def delete_composition(job_id: str, comp_id: str, _: str = Depends(verify_
 # Job detail HTML page
 # --- Per-clip editor ---
 
-@app.get("/job/{job_id}/clip/{clip_id}/edit", response_class=HTMLResponse)
+@app.get("/app/jobs/{job_id}/clips/{clip_id}/edit", response_class=HTMLResponse)
 async def get_clip_editor(job_id: str, clip_id: str, request: Request, api_token: Optional[str] = Cookie(None)):
-    if api_token != API_TOKEN:
+    ctx = _auth_page_context(api_token)
+    if not ctx:
         return templates.TemplateResponse(request, "login.html", {"error": None})
     job = Job.load(job_id)
     if not job:
         return RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
     target = next((c for c in job.clips if c.id == clip_id), None)
     if not target:
-        return RedirectResponse(url=f"/job/{job_id}", status_code=status.HTTP_303_SEE_OTHER)
+        return RedirectResponse(url=f"/app/jobs/{job_id}", status_code=status.HTTP_303_SEE_OTHER)
 
     # Load segments for this clip (absolute timestamps from source)
     seg_path = os.path.join(job.get_dir(), "segments.json")
@@ -1362,9 +1657,21 @@ async def get_clip_editor(job_id: str, clip_id: str, request: Request, api_token
             source_duration = target.end  # fallback
 
     return templates.TemplateResponse(request, "clip_editor.html", {
-        "job": job, "clip": target, "api_token": API_TOKEN,
-        "clip_segments": clip_segments, "source_duration": source_duration,
+        **ctx,
+        "job": job,
+        "clip": target,
+        "clip_segments": clip_segments,
+        "source_duration": source_duration,
+        "nav_active": "editor",
     })
+
+
+@app.get("/job/{job_id}/clip/{clip_id}/edit", response_class=HTMLResponse)
+async def redirect_clip_editor(job_id: str, clip_id: str):
+    return RedirectResponse(
+        url=f"/app/jobs/{job_id}/clips/{clip_id}/edit",
+        status_code=status.HTTP_301_MOVED_PERMANENTLY,
+    )
 
 
 @app.post("/jobs/{job_id}/clips/{clip_id}/apply")
@@ -1463,15 +1770,25 @@ async def apply_clip_edits(
         raise HTTPException(status_code=500, detail=f"Render failed: {e}")
 
 
-@app.get("/job/{job_id}", response_class=HTMLResponse)
+@app.get("/app/jobs/{job_id}", response_class=HTMLResponse)
 async def get_job_detail_page(job_id: str, request: Request, api_token: Optional[str] = Cookie(None)):
     """Renders the full job detail page (status + clips with video previews)."""
-    if api_token != API_TOKEN:
+    ctx = _auth_page_context(api_token)
+    if not ctx:
         return templates.TemplateResponse(request, "login.html", {"error": None})
     job = Job.load(job_id)
     if not job:
         return RedirectResponse(url="/app", status_code=status.HTTP_303_SEE_OTHER)
-    return templates.TemplateResponse(request, "job_detail.html", {"job": job, "api_token": API_TOKEN})
+    return templates.TemplateResponse(request, "job_detail.html", {
+        **ctx,
+        "job": job,
+        "nav_active": "job",
+    })
+
+
+@app.get("/job/{job_id}", response_class=HTMLResponse)
+async def redirect_job_detail_page(job_id: str):
+    return RedirectResponse(url=f"/app/jobs/{job_id}", status_code=status.HTTP_301_MOVED_PERMANENTLY)
 
 UPLOAD_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 
@@ -1515,7 +1832,7 @@ async def upload_custom_thumbnail(
     log_path = os.path.join(job_dir, "pipeline.log")
     _write_log(log_path, "INFO", "render", f"Custom thumbnail set for clip: {target.title}")
 
-    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
     return HTMLResponse(html)
 
 
@@ -1573,7 +1890,7 @@ async def remove_custom_thumbnail(
         log_path = os.path.join(job_dir, "pipeline.log")
         _write_log(log_path, "INFO", "render", f"Custom thumbnail removed for clip: {target.title}")
 
-    html = render_template_str("partials/job_detail.html", job=job, api_token=API_TOKEN)
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
     return HTMLResponse(html)
 
 
@@ -1581,20 +1898,20 @@ async def remove_custom_thumbnail(
 @app.get("/partials/jobs-list")
 async def get_jobs_list_partial(request: Request, api_token: Optional[str] = Cookie(None)):
     """Renders just the jobs list for dynamic updates (self-terminating poll while active)."""
-    if api_token != API_TOKEN:
+    if api_token != get_settings().api_token:
         return HTMLResponse("Unauthorized", status_code=401)
     jobs = Job.get_all()
     has_active = any(j.status not in ("done", "failed") for j in jobs)
     return templates.TemplateResponse(
         request,
         "partials/jobs_list.html",
-        {"jobs": jobs, "api_token": API_TOKEN, "has_active": has_active}
+        {"jobs": jobs, "api_token": get_settings().api_token, "has_active": has_active}
     )
 
 @app.get("/partials/job/{job_id}")
 async def get_job_detail_partial(job_id: str, request: Request, api_token: Optional[str] = Cookie(None)):
     """Renders just the job detail body for polling (status + clips)."""
-    if api_token != API_TOKEN:
+    if api_token != get_settings().api_token:
         return HTMLResponse("Unauthorized", status_code=401)
     job = Job.load(job_id)
     if not job:
@@ -1602,5 +1919,5 @@ async def get_job_detail_partial(job_id: str, request: Request, api_token: Optio
     return templates.TemplateResponse(
         request,
         "partials/job_detail.html",
-        {"job": job, "api_token": API_TOKEN}
+        {"job": job, "api_token": get_settings().api_token}
     )

@@ -1,0 +1,35 @@
+<header class="app-topbar">
+    <div class="app-topbar-left">
+        <button type="button" class="app-sidebar-toggle" id="sidebar-mobile-toggle" aria-label="Toggle menu">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+        </button>
+        {% if sidebar_collapsible %}
+        <button type="button" class="app-sidebar-toggle" id="sidebar-collapse-toggle" aria-label="Collapse sidebar" style="display:flex;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="11 17 6 12 11 7"></polyline><polyline points="18 17 13 12 18 7"></polyline>
+            </svg>
+        </button>
+        {% endif %}
+        <nav class="app-breadcrumb" aria-label="Breadcrumb">
+            {% if breadcrumbs %}
+                {% for crumb in breadcrumbs %}
+                    {% if not loop.first %}<span class="sep">/</span>{% endif %}
+                    {% if crumb.href and not loop.last %}
+                        <a href="{{ crumb.href }}">{{ crumb.label }}</a>
+                    {% else %}
+                        <span class="current">{{ crumb.label }}</span>
+                    {% endif %}
+                {% endfor %}
+            {% else %}
+                <span class="current">{% block page_title %}Dashboard{% endblock %}</span>
+            {% endif %}
+        </nav>
+    </div>
+    <div class="app-topbar-right">
+        <div class="app-topbar-actions">
+            {% block topbar_actions %}{% endblock %}
+        </div>
+    </div>
+</header>

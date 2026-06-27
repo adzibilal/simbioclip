@@ -4,7 +4,7 @@ import glob
 import re
 from datetime import datetime
 from typing import Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from app.config import DATA_DIR
 
 
@@ -82,6 +82,14 @@ class CompositionClip(BaseModel):
     trim_start: Optional[float] = None
     trim_end: Optional[float] = None
 
+class ReplizScheduleEntry(BaseModel):
+    schedule_id: str
+    account_id: str
+    scheduled_at: str
+    account_name: Optional[str] = None
+    post_type: Optional[str] = None
+
+
 class Composition(BaseModel):
     id: str
     job_id: str
@@ -123,6 +131,28 @@ class Clip(BaseModel):
     caption_style_override: Optional[str] = None
     thumbnail_image_path: Optional[str] = None
     favorite: bool = False
+    repliz_schedules: List["ReplizScheduleEntry"] = []
+    repliz_schedule_id: Optional[str] = None
+    repliz_scheduled_at: Optional[str] = None
+    repliz_account_id: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _migrate_legacy_repliz(self) -> "Clip":
+        if self.repliz_schedule_id and not self.repliz_schedules:
+            self.repliz_schedules = [
+                ReplizScheduleEntry(
+                    schedule_id=self.repliz_schedule_id,
+                    account_id=self.repliz_account_id or "",
+                    scheduled_at=self.repliz_scheduled_at or "",
+                )
+            ]
+        return self
+
+    def repliz_is_scheduled_for(self, account_id: str) -> bool:
+        return any(s.account_id == account_id for s in self.repliz_schedules)
+
+    def repliz_scheduled_account_ids(self) -> List[str]:
+        return [s.account_id for s in self.repliz_schedules if s.account_id]
 
 class Job(BaseModel):
     id: str
@@ -136,7 +166,6 @@ class Job(BaseModel):
     content_type: Optional[str] = None
     layout_mode: str = "auto"
     aspect_ratio: str = "9:16"
-    audio_ducking: bool = False
     clip_start: Optional[float] = None
     clip_end: Optional[float] = None
     thumbnail_url: Optional[str] = None
@@ -145,13 +174,14 @@ class Job(BaseModel):
     speaker_count: Optional[int] = None
     caption_style: str = "bold_pop"
     clip_duration: str = "auto"
-    dense_cut: bool = False
     download_resolution: str = "1080p"
     silence_ranges: List[List[float]] = []
     download_pct: Optional[float] = None
     download_downloaded_mb: Optional[float] = None
     download_total_mb: Optional[float] = None
     failed_step: Optional[str] = None
+    channel_name: str = ""
+    channel_url: str = ""
 
     @property
     def youtube_thumbnail(self) -> Optional[str]:

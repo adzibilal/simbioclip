@@ -3,17 +3,16 @@ import logging
 import subprocess
 from typing import List, Dict, Any
 from openai import OpenAI
-from app.config import STT_MODE, STT_BASE_URL, STT_API_KEY, STT_MODEL, STT_MODEL_FALLBACK
+from app.settings_store import get_settings
 from app.models import Job
 
 logger = logging.getLogger("simbioclip.pipeline.transcribe")
 
 
-def _stt_model_chain() -> List[str]:
-    """Ordered list of Whisper models to attempt: primary first, then fallback.
-    Empty/duplicate entries are dropped."""
+def _stt_model_chain(settings) -> List[str]:
+    """Ordered list of Whisper models to attempt: primary first, then fallback."""
     chain = []
-    for m in (STT_MODEL, STT_MODEL_FALLBACK):
+    for m in (settings.stt_model, settings.stt_model_fallback):
         m = (m or "").strip()
         if m and m not in chain:
             chain.append(m)
@@ -80,16 +79,16 @@ def transcribe_job_audio(job: Job, video_path: str) -> List[Dict[str, Any]]:
     extract_audio(video_path, audio_path)
     
     segments = []
+    settings = get_settings()
     
-    if STT_MODE == "router":
-        logger.info(f"Using Mode A (STT API Router): {STT_BASE_URL}")
-        if not STT_BASE_URL or not STT_API_KEY:
+    if settings.stt_mode == "router":
+        logger.info(f"Using Mode A (STT API Router): {settings.stt_base_url}")
+        if not settings.stt_base_url or not settings.stt_api_key:
             raise ValueError("STT_BASE_URL and STT_API_KEY must be set for STT_MODE='router'")
 
-        client = OpenAI(base_url=STT_BASE_URL, api_key=STT_API_KEY)
+        client = OpenAI(base_url=settings.stt_base_url, api_key=settings.stt_api_key)
 
-        # Try the primary Whisper model; on failure fall back to the next one.
-        model_chain = _stt_model_chain()
+        model_chain = _stt_model_chain(settings)
         logger.info(f"STT model chain: {model_chain}")
         response = None
         last_error = None

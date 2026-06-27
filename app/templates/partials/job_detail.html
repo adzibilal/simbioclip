@@ -24,9 +24,6 @@
             {% if job.aspect_ratio and job.aspect_ratio != '9:16' %}
             <span class="ct-badge ct-tutorial">{{ job.aspect_ratio }}</span>
             {% endif %}
-            {% if job.audio_ducking %}
-            <span class="ct-badge ct-vertical">duck</span>
-            {% endif %}
         </div>
     </div>
     <div class="jd-header-right">
@@ -153,114 +150,122 @@
         <!-- Content panel -->
         <div class="tab-panel" data-tab="content">
             {% if job.clips %}
-            <div style="padding:16px;">
+            <div class="clips-panel">
                 <div class="clips-grid">
                     {% for clip in job.clips %}
                     {% set clip_src = clip.download_url ~ '?token=' ~ api_token %}
                     {% set custom_thumb_url = '/api/jobs/' ~ job.id ~ '/clips/' ~ clip.id ~ '/custom-thumbnail-image?token=' ~ api_token %}
                     {% set thumb_src = custom_thumb_url if clip.thumbnail_image_path else ((clip.thumbnail_url ~ '?token=' ~ api_token) if clip.thumbnail_url else '') %}
-                    <div class="clip-card">
-                        {% if clip.download_url %}
-                        <div class="clip-video-wrap" data-url="{{ clip_src }}" data-title="{{ clip.title }}" onclick="openClipModal(this)">
-                            <video src="{{ clip_src }}#t=0.5" {% if thumb_src %}poster="{{ thumb_src }}"{% endif %} preload="metadata" muted playsinline></video>
-                            <div class="clip-play"><span><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg></span></div>
-                        </div>
-                        {% else %}
-                        <div class="clip-video-wrap" style="display:flex;align-items:center;justify-content:center;cursor:default;">
-                            <span class="spinner"></span>
-                        </div>
-                        {% endif %}
-
-                        <div class="clip-body">
-                            <div class="clip-title" title="{{ clip.title }}">
-                                <span>{{ clip.title }}</span>
-                                {% if clip.title_alternatives %}
-                                <button type="button" class="clip-edit-btn" title="Try alternative title"
-                                        onclick="cycleClipTitle('{{ job.id }}','{{ clip.id }}',{{ ([clip.title] + clip.title_alternatives)|tojson }})">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
-                                </button>
-                                {% endif %}
-                                <button type="button" class="clip-edit-btn" title="Edit title"
-                                        onclick="editClipField('{{ job.id }}','{{ clip.id }}','title',{{ clip.title|tojson }})">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                </button>
+                    <article class="clip-card">
+                        <div class="clip-media">
+                            {% if clip.download_url %}
+                            <div class="clip-video-wrap" data-url="{{ clip_src }}" data-title="{{ clip.title }}" onclick="openClipModal(this)">
+                                <video src="{{ clip_src }}#t=0.5" {% if thumb_src %}poster="{{ thumb_src }}"{% endif %} preload="metadata" muted playsinline></video>
+                                <div class="clip-play"><span><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 4 20 12 6 20 6 4"></polygon></svg></span></div>
                             </div>
+                            <span class="clip-score-badge">{{ clip.score }}</span>
+                            <span class="clip-duration-badge">{{ '%.0f'|format(clip.duration) }}s</span>
+                            <button type="button" class="clip-fav-float{% if clip.favorite %} is-fav{% endif %}"
+                                    title="{% if clip.favorite %}Unlike{% else %}Like{% endif %}"
+                                    hx-post="/jobs/{{ job.id }}/clips/{{ clip.id }}/favorite"
+                                    hx-target="#job-detail-body"
+                                    hx-swap="innerHTML">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="{% if clip.favorite %}currentColor{% else %}none{% endif %}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
+                            </button>
+                            {% else %}
+                            <div class="clip-video-wrap" style="display:flex;align-items:center;justify-content:center;cursor:default;">
+                                <span class="spinner"></span>
+                            </div>
+                            {% endif %}
+                        </div>
+
+                        <div class="clip-content">
+                            <div class="clip-title-row">
+                                <h3 class="clip-title" title="{{ clip.title }}">{{ clip.title }}</h3>
+                                <div class="clip-title-actions">
+                                    {% if clip.title_alternatives %}
+                                    <button type="button" class="clip-edit-btn" title="Try alternative title"
+                                            onclick="cycleClipTitle('{{ job.id }}','{{ clip.id }}',{{ ([clip.title] + clip.title_alternatives)|tojson|string|e }})">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"></polyline><path d="M3 11V9a4 4 0 0 1 4-4h14"></path><polyline points="7 23 3 19 7 15"></polyline><path d="M21 13v2a4 4 0 0 1-4 4H3"></path></svg>
+                                    </button>
+                                    {% endif %}
+                                    <button type="button" class="clip-edit-btn" title="Edit title"
+                                            onclick="editClipField('{{ job.id }}','{{ clip.id }}','title',{{ clip.title|tojson|string|e }})">
+                                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                    </button>
+                                </div>
+                            </div>
+
                             <div class="clip-meta">
-                                <button type="button" class="clip-fav{% if clip.favorite %} is-fav{% endif %}"
-                                        title="{% if clip.favorite %}Unlike{% else %}Like{% endif %} this clip"
-                                        hx-post="/jobs/{{ job.id }}/clips/{{ clip.id }}/favorite"
-                                        hx-target="#job-detail-body"
-                                        hx-swap="innerHTML">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="{% if clip.favorite %}currentColor{% else %}none{% endif %}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path></svg>
-                                </button>
-                                <span class="cm-badge cm-score">{{ clip.score }}</span>
-                                <span class="cm-badge cm-duration">{{ '%.0f'|format(clip.duration) }}s</span>
                                 {% if clip.layout_used and clip.layout_used != 'Center Crop' %}
                                 <span class="cm-badge cm-layout">{{ clip.layout_used }}</span>
                                 {% endif %}
                                 {% if clip.speaker_label %}
                                 <span class="cm-badge cm-speaker">{{ clip.speaker_label }}</span>
                                 {% endif %}
+                                {% if clip.repliz_schedules %}
+                                <span class="cm-badge" style="background:var(--brand-green-soft);color:var(--brand-green-dark);">
+                                    Repliz · {{ clip.repliz_schedules|length }} account{{ 's' if clip.repliz_schedules|length != 1 else '' }}
+                                </span>
+                                {% endif %}
                             </div>
+
                             {% if clip.hook %}
                             <div class="clip-hook">
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0;margin-top:2px;"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                                 <span>{{ clip.hook }}</span>
-                                <button type="button" class="clip-edit-btn" title="Edit hook"
-                                        onclick="editClipField('{{ job.id }}','{{ clip.id }}','hook',{{ clip.hook|tojson }})">
-                                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                </button>
                             </div>
                             {% endif %}
-                            {% if clip.reason %}<div class="clip-reason">{{ clip.reason }}</div>{% endif %}
+                            {% if clip.reason %}<p class="clip-reason">{{ clip.reason }}</p>{% endif %}
 
-                            <div class="clip-foot">
+                            <div class="clip-toolbar">
                                 {% if clip.download_url %}
-                                <button type="button" class="btn-secondary btn-rerender" style="padding:5px 9px;font-size:11px;color:var(--brand-green-dark);"
-                                        onclick="openRerenderModal('{{ job.id }}','{{ clip.id }}')">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
-                                    Rerender
-                                </button>
-                                <button type="button" class="btn-secondary" style="padding:5px 9px;font-size:11px;"
-                                        onclick="document.getElementById('thumb-upload-{{ clip.id }}').click()">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
-                                    Thumbnail
-                                </button>
+                                <div class="clip-toolbar-main">
+                                    <a class="clip-act clip-act--primary" href="{{ clip_src }}" download target="_blank" rel="noopener">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                                        Download
+                                    </a>
+                                    <a class="clip-act clip-act--accent" href="/app/jobs/{{ job.id }}/clips/{{ clip.id }}/edit" title="Edit">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                                        Edit
+                                    </a>
+                                </div>
+                                <div class="clip-toolbar-secondary">
+                                    <button type="button" class="clip-act clip-act--secondary" title="Trim"
+                                            onclick="openTrimModal('{{ job.id }}','{{ clip.id }}',{{ clip.start }},{{ clip.end }},{{ (clip.trim_start - clip.start) if clip.trim_start is not none else 0 }},{{ (clip.trim_end - clip.start) if clip.trim_end is not none else (clip.end - clip.start) }},'{{ clip_src }}&orig=1')">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                                        Trim
+                                    </button>
+                                    <button type="button" class="clip-act clip-act--secondary" title="Rerender" onclick="openRerenderModal('{{ job.id }}','{{ clip.id }}')">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                                        Rerender
+                                    </button>
+                                    <button type="button" class="clip-act clip-act--secondary" title="Thumbnail" onclick="document.getElementById('thumb-upload-{{ clip.id }}').click()">
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>
+                                        Thumbnail
+                                    </button>
+                                </div>
                                 <input type="file" id="thumb-upload-{{ clip.id }}" accept="image/*" style="display:none"
                                        onchange="uploadClipThumbnail('{{ job.id }}','{{ clip.id }}', this)">
-                                {% if clip.thumbnail_image_path %}
-                                <button type="button" class="btn-secondary" style="padding:5px 9px;font-size:11px;color:var(--red);"
-                                        onclick="removeClipThumbnail('{{ job.id }}','{{ clip.id }}')">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-                                    Remove thumb
+                                <button type="button" class="clip-act clip-act--repliz" title="Upload to Repliz"
+                                        onclick='openReplizModal("{{ job.id }}","{{ clip.id }}",{{ clip.title|tojson|e }},{{ (clip.hook or clip.title)|tojson|e }},{{ clip.repliz_scheduled_account_ids()|tojson|e }})'>
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                                    Upload to Repliz
                                 </button>
-                                {% endif %}
-                                <a class="btn-secondary" href="/job/{{ job.id }}/clip/{{ clip.id }}/edit" style="padding:5px 9px;font-size:11px;">
-                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
-                                    Edit
-                                </a>
-                                <button type="button" class="btn-secondary" style="padding:5px 9px;"
-                                        onclick="openTrimModal('{{ job.id }}','{{ clip.id }}',{{ clip.start }},{{ clip.end }},{{ (clip.trim_start - clip.start) if clip.trim_start is not none else 0 }},{{ (clip.trim_end - clip.start) if clip.trim_end is not none else (clip.end - clip.start) }},'{{ clip_src }}&orig=1')">
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
-                                </button>
-                                <a class="btn-download" href="{{ clip_src }}" download target="_blank" rel="noopener">
-                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
-                                    Download
-                                </a>
                                 {% else %}
-                                <span class="clip-rendering">Rendering…</span>
+                                <span class="clip-rendering"><span class="spinner"></span> Rendering…</span>
                                 {% endif %}
                             </div>
                         </div>
-                    </div>
+                    </article>
                     {% endfor %}
                 </div>
             </div>
             {% elif clean_status == 'done' %}
-            <div class="empty-state">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+            <div class="empty-state-card" style="margin:20px;">
+                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
                 <h3>No clips produced</h3>
-                <p>The pipeline finished but found no renderable moments.</p>
+                <p>The pipeline finished but found no renderable moments in this video.</p>
             </div>
             {% else %}
             <div class="loading-state">

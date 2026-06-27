@@ -32,7 +32,7 @@ if [[ ! -f .env ]]; then
   warn ".env not found — secrets will be empty. Copy .env.example if you have one."
 fi
 
-# Ensure third-party GPG keys are available before building (Docker's network
+# Ensure third-party keys/debs are available before building (Docker's network
 # often cannot reach deb.nodesource.com / dl.google.com during builds).
 fetch_keys() {
   local dir="keys"
@@ -43,11 +43,14 @@ fetch_keys() {
       https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key |
       gpg --dearmor -o "$dir/nodesource.gpg"
   fi
-  if [[ ! -f "$dir/google-chrome.gpg" ]]; then
-    say "Downloading Google Chrome GPG key…"
-    curl -fsSL --retry 3 --retry-delay 5 \
-      https://dl.google.com/linux/linux_signing_key.pub |
-      gpg --dearmor -o "$dir/google-chrome.gpg"
+  if [[ ! -f "$dir/google-chrome-stable_amd64.deb" ]]; then
+    say "Downloading Google Chrome .deb (optional — skipped if dl.google.com unreachable)…"
+    if ! curl -fsSL --max-time 30 --retry 2 --retry-delay 3 \
+      -o "$dir/google-chrome-stable_amd64.deb" \
+      https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb; then
+      rm -f "$dir/google-chrome-stable_amd64.deb"
+      warn "Chrome .deb download failed — Docker build will use Debian chromium instead."
+    fi
   fi
 }
 

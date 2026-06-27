@@ -1,0 +1,353 @@
+/* App dashboard shell — Opus Clip-style sidebar layout */
+.app-layout {
+    min-height: 100vh;
+    background: var(--surface);
+}
+
+.app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: var(--sidebar-w);
+    background: var(--brand-teal-deep);
+    color: var(--on-dark);
+    display: flex;
+    flex-direction: column;
+    z-index: 100;
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    transition: width 0.2s ease, transform 0.25s ease;
+    overflow: hidden;
+}
+
+.app-sidebar.is-collapsed {
+    width: var(--sidebar-collapsed-w);
+}
+
+.app-sidebar-brand {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    padding: 18px 16px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+}
+
+.app-sidebar-brand .brand-mark {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 237, 100, 0.15);
+    border-radius: 9px;
+}
+
+.app-sidebar-brand .brand-mark svg { width: 20px; height: 20px; }
+
+.app-sidebar-brand .brand-name {
+    font-size: 17px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.app-sidebar-brand .brand-name span { color: var(--brand-green); }
+
+.app-sidebar-cta {
+    padding: 12px 14px;
+    flex-shrink: 0;
+}
+
+.app-sidebar-cta .btn-new-project {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    padding: 10px 14px;
+    background: var(--brand-green);
+    color: var(--on-primary);
+    border: none;
+    border-radius: 10px;
+    font-family: var(--font-sans);
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, box-shadow 0.15s ease;
+    text-decoration: none;
+}
+
+.app-sidebar-cta .btn-new-project:hover {
+    background: #00D659;
+    box-shadow: 0 4px 14px rgba(0, 237, 100, 0.35);
+}
+
+.app-sidebar-cta .btn-new-project svg { flex-shrink: 0; }
+
+.app-sidebar-nav {
+    flex: 1;
+    padding: 8px 10px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.app-nav-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: rgba(255, 255, 255, 0.35);
+    padding: 12px 10px 6px;
+}
+
+.app-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 9px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--on-dark-muted);
+    transition: background 0.15s ease, color 0.15s ease;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    font-family: var(--font-sans);
+}
+
+.app-nav-item svg { flex-shrink: 0; opacity: 0.85; }
+
+.app-nav-item:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--on-dark);
+}
+
+.app-nav-item.is-active {
+    background: rgba(0, 237, 100, 0.12);
+    color: var(--brand-green);
+    font-weight: 600;
+}
+
+.app-nav-item.is-active svg { opacity: 1; }
+
+.app-nav-item .nav-text { white-space: nowrap; overflow: hidden; }
+
+.app-sidebar-footer {
+    padding: 12px 10px 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.app-sidebar-footer .worker-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--on-dark-muted);
+    padding: 8px 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.app-sidebar-footer .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--brand-green-mid);
+    box-shadow: 0 0 0 3px rgba(0, 184, 92, 0.2);
+    animation: pulse 2s infinite;
+    flex-shrink: 0;
+}
+
+.app-main {
+    margin-left: var(--sidebar-w);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    transition: margin-left 0.2s ease;
+}
+
+.app-layout.sidebar-collapsed .app-main { margin-left: var(--sidebar-collapsed-w); }
+.app-layout.sidebar-collapsed .app-sidebar { width: var(--sidebar-collapsed-w); }
+.app-layout.sidebar-collapsed .brand-name,
+.app-layout.sidebar-collapsed .nav-text,
+.app-layout.sidebar-collapsed .app-nav-label,
+.app-layout.sidebar-collapsed .btn-new-project span,
+.app-layout.sidebar-collapsed .worker-status span:last-child { display: none; }
+.app-layout.sidebar-collapsed .btn-new-project { padding: 10px; }
+.app-layout.sidebar-collapsed .app-sidebar-cta { padding: 12px 10px; }
+
+.app-topbar {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    height: var(--topbar-h);
+    background: rgba(255, 255, 255, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--hairline);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 0 24px;
+    flex-shrink: 0;
+}
+
+.app-topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.app-sidebar-toggle {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 1px solid var(--hairline);
+    border-radius: 8px;
+    background: var(--canvas);
+    cursor: pointer;
+    color: var(--slate);
+    flex-shrink: 0;
+}
+
+.app-sidebar-toggle:hover { background: var(--surface-soft); }
+
+.app-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--steel);
+    min-width: 0;
+    flex-wrap: wrap;
+}
+
+.app-breadcrumb a {
+    color: var(--steel);
+    transition: color 0.15s ease;
+}
+
+.app-breadcrumb a:hover { color: var(--ink); }
+
+.app-breadcrumb .sep { color: var(--muted); font-size: 12px; }
+
+.app-breadcrumb .current {
+    color: var(--ink);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 320px;
+}
+
+.app-topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.app-topbar-actions { display: flex; align-items: center; gap: 8px; }
+
+.btn-logout {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--ink);
+    border: 1px solid var(--hairline-strong);
+    padding: 7px 16px;
+    border-radius: 9999px;
+    transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-logout:hover { background: var(--surface-soft); border-color: var(--steel); }
+
+.app-content {
+    flex: 1;
+    padding: 24px 28px 40px;
+    min-width: 0;
+}
+
+.app-content-inner { max-width: 1280px; margin: 0 auto; }
+
+.app-content--flush { padding: 0; }
+.app-content--flush .app-content-full { max-width: none; width: 100%; }
+
+.app-sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 30, 43, 0.5);
+    z-index: 90;
+    backdrop-filter: blur(2px);
+}
+
+.app-sidebar-overlay.open { display: block; }
+
+/* Page headers */
+.page-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+}
+
+.page-header h1 {
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.4px;
+    color: var(--ink);
+}
+
+.page-header p {
+    margin-top: 4px;
+    font-size: 14px;
+    color: var(--steel);
+}
+
+.page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.container { max-width: 1180px; margin: 0 auto; padding: 0; }
+
+@media (max-width: 768px) {
+    .app-sidebar {
+        transform: translateX(-100%);
+        width: var(--sidebar-w) !important;
+    }
+
+    .app-sidebar.mobile-open {
+        transform: translateX(0);
+        box-shadow: var(--shadow-4);
+    }
+
+    .app-main { margin-left: 0 !important; }
+
+    .app-sidebar-toggle { display: flex; }
+
+    .app-content { padding: 16px 16px 32px; }
+
+    .app-breadcrumb .current { max-width: 180px; }
+}

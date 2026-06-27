@@ -1,0 +1,135 @@
+{% extends "layouts/app_shell.html" %}
+{% block title %}SimbioClip — Projects{% endblock %}
+
+{% block head_extra %}
+<link rel="stylesheet" href="/static/css/dashboard.css">
+{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>Projects</h1>
+        <p>Your clipping pipelines and generated clips.</p>
+    </div>
+    <div class="page-header-actions">
+        <button class="btn-danger-sm" id="delete-selected-btn" disabled onclick="deleteSelected()">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+            </svg>
+            Delete <span id="selected-count">0</span>
+        </button>
+        <div class="drop-wrap">
+            <button class="btn-ghost-sm" onclick="toggleCleanMenu(event)">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                </svg>
+                Clean
+            </button>
+            <div class="drop-menu" id="clean-menu">
+                <button class="drop-item" onclick="cleanJobs(7)">Older than 7 days</button>
+                <button class="drop-item" onclick="cleanJobs(30)">Older than 30 days</button>
+                <div class="drop-divider"></div>
+                <button class="drop-item danger" onclick="cleanJobs(0)">Delete all jobs</button>
+            </div>
+        </div>
+        <a href="/app/new" class="btn-primary" style="padding:8px 16px;font-size:13px;">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            New Project
+        </a>
+    </div>
+</div>
+
+<div id="jobs-container" class="job-grid"
+     hx-get="/partials/jobs-list"
+     hx-trigger="load, reload-jobs from:body"
+     hx-target="#jobs-container"
+     hx-swap="innerHTML">
+    <div class="loading-state"><span class="spinner"></span> Loading…</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function toggleCleanMenu(e) {
+        e.stopPropagation();
+        document.getElementById('clean-menu').classList.toggle('open');
+    }
+    document.addEventListener('click', function () {
+        var menu = document.getElementById('clean-menu');
+        if (menu) menu.classList.remove('open');
+    });
+
+    function cleanJobs(days) {
+        var msg = days === 0 ? 'Delete ALL jobs? This cannot be undone.'
+            : 'Delete jobs older than ' + days + ' days? This cannot be undone.';
+        if (!confirm(msg)) return;
+        document.getElementById('clean-menu').classList.remove('open');
+        fetch('/cleanup?days=' + days, { method: 'POST' })
+            .then(function () {
+                document.body.dispatchEvent(new Event('reload-jobs'));
+                showToast('Cleaned up old jobs');
+            })
+            .catch(function () { showToast('Cleanup failed', true); });
+    }
+
+    function deleteSelected() {
+        var checks = document.querySelectorAll('.job-check:checked');
+        var ids = [];
+        checks.forEach(function (c) { ids.push(c.value); });
+        if (!ids.length) return;
+        if (!confirm('Delete ' + ids.length + ' selected job(s) and all clips? This cannot be undone.')) return;
+        var btn = document.getElementById('delete-selected-btn');
+        btn.disabled = true; btn.innerHTML = 'Deleting…';
+        fetch('/jobs/bulk-delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer {{ api_token }}' },
+            body: JSON.stringify({ job_ids: ids })
+        }).then(function (r) {
+            if (!r.ok) throw new Error();
+            document.body.dispatchEvent(new Event('reload-jobs'));
+            showToast('Deleted ' + ids.length + ' job(s)');
+        }).catch(function () {
+            showToast('Bulk delete failed', true);
+        }).finally(function () {
+            btn.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg> Delete <span id="selected-count">0</span>';
+        });
+    }
+
+    document.body.addEventListener('htmx:afterSwap', function (e) {
+        if (e.detail.target.id === 'jobs-container') {
+            var hasJobs = document.querySelectorAll('.job-card').length > 0;
+            var btn = document.getElementById('delete-selected-btn');
+            if (btn) btn.style.display = hasJobs ? '' : 'none';
+        }
+    });
+
+    (function() {
+        var jobStatuses = {};
+        document.body.addEventListener('htmx:afterSwap', function(e) {
+            if (e.detail.target.id !== 'jobs-container') return;
+            var cards = document.querySelectorAll('.job-card');
+            var fresh = {};
+            cards.forEach(function(card) {
+                var id = card.id.replace('job-card-', '');
+                var pill = card.querySelector('.job-card-status');
+                if (!pill) return;
+                var status = pill.textContent.trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z_]/g,'');
+                fresh[id] = status;
+                var prev = jobStatuses[id];
+                if (prev && prev !== status) {
+                    if (prev === 'downloading' && status !== 'downloading') {
+                        sendNotif('Download complete', 'Source video download finished for job ' + id.slice(0, 8));
+                    }
+                    if ((prev === 'rendering' || prev === 'rendered') && (status === 'done' || status === 'failed')) {
+                        var msg = status === 'done' ? 'All clips rendered successfully' : 'Rendering failed';
+                        sendNotif('Render ' + (status === 'done' ? 'complete' : 'failed'), msg + ' for job ' + id.slice(0, 8));
+                    }
+                }
+            });
+            jobStatuses = fresh;
+        });
+    })();
+</script>
+{% endblock %}

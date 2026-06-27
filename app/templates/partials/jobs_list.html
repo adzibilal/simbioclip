@@ -1,45 +1,67 @@
 {% if not jobs %}
-<div class="empty-state">
-    <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+<div class="empty-state-card">
+    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect>
     </svg>
-    <h3>No clipping jobs yet</h3>
-    <p>Submit a video above to start your first pipeline.</p>
+    <h3>No projects yet</h3>
+    <p>Upload a long-form video and SimbioClip will find your best vertical moments automatically.</p>
+    <div class="empty-state-cta">
+        <a href="/app/new" class="btn-primary" style="padding:10px 22px;font-size:14px;">Create first project</a>
+    </div>
 </div>
 {% endif %}
 
 {% for job in jobs %}
 {% set clean_status = job.status.split(' ')[0] %}
+{% if job.file_name %}
+    {% set card_title = job.file_name %}
+    {% set card_sub = 'Local upload' %}
+{% elif job.source_url and ('youtube.com' in job.source_url or 'youtu.be' in job.source_url) %}
+    {% set card_title = 'YouTube source' %}
+    {% set card_sub = job.source_url %}
+{% else %}
+    {% set card_title = job.source_url or ('Project ' ~ job.id[:8]) %}
+    {% set card_sub = '' %}
+{% endif %}
 <div class="job-card" id="job-card-{{ job.id }}">
-    <input type="checkbox" class="job-check" value="{{ job.id }}" id="chk-{{ job.id }}" style="position:absolute;top:10px;right:10px;z-index:5;width:16px;height:16px;accent-color:var(--brand-green);cursor:pointer;">
+    <input type="checkbox" class="job-check job-card-select" value="{{ job.id }}" id="chk-{{ job.id }}" aria-label="Select project">
 
-    <a class="job-card-link" href="/job/{{ job.id }}">
-        <div class="job-card-thumb">
-            {% if job.thumbnail_url %}
-            <img src="{{ job.thumbnail_url }}" alt="" loading="lazy">
-            {% else %}
-            <svg class="placeholder-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect>
-            </svg>
-            {% endif %}
+    <a class="job-card-link" href="/app/jobs/{{ job.id }}">
+        <div class="job-card-media">
+            <div class="job-card-thumb">
+                {% if job.thumbnail_url %}
+                <img src="{{ job.thumbnail_url }}" alt="" loading="lazy">
+                {% else %}
+                <svg class="placeholder-icon" width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="23 7 16 12 23 17 23 7"></polygon><rect x="1" y="5" width="15" height="14" rx="2"></rect>
+                </svg>
+                {% endif %}
+            </div>
 
-            <div class="job-card-status status-{{ clean_status }}">
+            <div class="job-card-badge status-{{ clean_status }}">
                 <span class="pulse-dot dot-{{ clean_status }}"></span>
                 <span>{{ job.status.replace('_', ' ') }}</span>
             </div>
 
-            {% if job.content_type %}
-            <div class="job-card-clipcount">{{ job.content_type.replace('_', ' ') }}</div>
+            {% if job.clips %}
+            <div class="job-card-count">{{ job.clips|length }} clip{{ 's' if job.clips|length != 1 else '' }}</div>
+            {% elif job.content_type %}
+            <div class="job-card-count">{{ job.content_type.replace('_', ' ') }}</div>
             {% endif %}
+
+            <span class="job-card-open" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9 18 15 12 9 6"></polyline>
+                </svg>
+            </span>
         </div>
 
         <div class="job-card-body">
-            <div class="job-card-title" title="{{ job.source_url or job.file_name }}">
-                {% if job.source_url %}{{ job.source_url }}{% else %}{{ job.file_name }}{% endif %}
-            </div>
+            <div class="job-card-title" title="{{ job.source_url or job.file_name }}">{{ card_title }}</div>
+            {% if card_sub %}<div class="job-card-sub" title="{{ card_sub }}">{{ card_sub }}</div>{% endif %}
             <div class="job-card-meta">
                 <code>{{ job.id[:8] }}</code>
-                <span>{{ job.created_at[:19].replace('T', ' ') }} UTC</span>
+                <time>{{ job.created_at[:10] }}</time>
                 {% if job.aspect_ratio and job.aspect_ratio != '9:16' %}
                 <span class="ct-badge ct-tutorial">{{ job.aspect_ratio }}</span>
                 {% endif %}
@@ -63,7 +85,7 @@
         {% endif %}
         {% if job.status == 'done' %}
         <button class="job-card-action retry"
-                title="Re-render clips (keep source, re-run only rendering)"
+                title="Re-render clips"
                 hx-post="/jobs/{{ job.id }}/rerender"
                 hx-target="#job-card-{{ job.id }}"
                 hx-swap="outerHTML"
@@ -85,10 +107,11 @@
             </svg>
         </button>
         {% endif %}
+        <span class="job-card-action-spacer"></span>
         <button class="job-card-action danger"
-                title="Delete job and all clips"
+                title="Delete project"
                 hx-delete="/jobs/{{ job.id }}"
-                hx-confirm="Delete this job and remove all its clips from disk? This cannot be undone."
+                hx-confirm="Delete this project and all clips? This cannot be undone."
                 hx-target="#job-card-{{ job.id }}"
                 hx-swap="outerHTML">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
