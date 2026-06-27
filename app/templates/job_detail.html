@@ -1,20 +1,41 @@
-{% extends "base.html" %}
+{% extends "layouts/app_shell.html" %}
 {% block title %}SimbioClip — Job {{ job.id[:8] }}{% endblock %}
+
+{% set job_label = (job.source_url or job.file_name or job.id[:8])[:48] %}
+{% set breadcrumbs = [
+    {"label": "Projects", "href": "/app"},
+    {"label": job_label}
+] %}
+
+{% block topbar_actions %}
+<a href="/app/jobs/{{ job.id }}/studio" class="btn-secondary" style="font-size:13px;padding:7px 14px;">Studio</a>
+{% endblock %}
 
 {% block head_extra %}
 <style>
     /* ── Page wrapper ── */
-    .jd-wrap { padding: 24px 28px 40px; }
+    .jd-wrap { padding: 0 0 24px; }
     .jd-back { display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 600;
         color: var(--slate); margin-bottom: 18px; padding: 7px 14px; border-radius: 9999px;
         border: 1px solid var(--hairline); background: var(--canvas);
         transition: background .15s, border-color .15s; }
     .jd-back:hover { background: var(--surface-soft); border-color: var(--steel); }
 
-    /* ── Job header ── */
-    .jd-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
-        flex-wrap: wrap; background: var(--canvas); border: 1px solid var(--hairline);
-        border-radius: 14px; padding: 20px 22px; box-shadow: var(--shadow-2); margin-bottom: 16px; }
+    /* ── Job header card ── */
+    .jd-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+        background: var(--canvas);
+        border: 1px solid var(--hairline);
+        border-radius: 16px;
+        padding: 20px 22px;
+        box-shadow: var(--shadow-2);
+        margin-bottom: 16px;
+        transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
     .jd-header-info { min-width: 0; flex: 1; }
     .jd-yt-thumb { display: block; width: 240px; max-width: 100%; aspect-ratio: 16 / 9;
         border-radius: 10px; overflow: hidden; margin-bottom: 10px; border: 1px solid var(--hairline);
@@ -139,11 +160,6 @@
 
 {% block content %}
 <div class="jd-wrap">
-    <a class="jd-back" href="/app">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-        Back to jobs
-    </a>
-
     <div id="job-detail-body">
         {% include "partials/job_detail.html" %}
     </div>

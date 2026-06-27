@@ -11,8 +11,8 @@ ENV PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PYTHONUNBUFFERED=1 \
     DEBIAN_FRONTEND=noninteractive
 
-# Pre-downloaded GPG keys for NodeSource & Google Chrome (avoids curl from
-# within the build, which may fail in restricted Docker network environments).
+# Pre-downloaded artifacts for NodeSource & Google Chrome (avoids fetching
+# deb.nodesource.com / dl.google.com from inside the build — often blocked or slow).
 COPY keys/ /tmp/keys/
 
 # System deps (rarely changes). BuildKit cache mounts keep the apt cache around
@@ -27,8 +27,6 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     mkdir -p /etc/apt/keyrings && \
     cp /tmp/keys/nodesource.gpg /etc/apt/keyrings/nodesource.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list && \
-    cp /tmp/keys/google-chrome.gpg /etc/apt/keyrings/google-chrome.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
         ffmpeg \
@@ -36,11 +34,16 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         build-essential \
         nodejs \
         aria2 \
-        google-chrome-stable \
         fonts-dejavu \
         fonts-noto-color-emoji \
         fontconfig \
     && fc-cache -f && \
+    if [ -f /tmp/keys/google-chrome-stable_amd64.deb ]; then \
+        apt-get install -y --no-install-recommends /tmp/keys/google-chrome-stable_amd64.deb; \
+    else \
+        echo "WARNING: Chrome .deb not found — installing chromium from Debian repos instead."; \
+        apt-get install -y --no-install-recommends chromium; \
+    fi && \
     rm -rf /tmp/keys
 
 WORKDIR /app

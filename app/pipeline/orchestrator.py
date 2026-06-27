@@ -255,6 +255,8 @@ def process_video_job(job_id: str) -> None:
         unrendered = [c for c in job.clips if not (c.file_path and os.path.exists(c.file_path))]
         if unrendered:
             render_job_clips(job, video_path, segments, diarized)
+            if job.channel_name:
+                logger.info(f"Channel name available for credit watermark: {job.channel_name}")
         else:
             logger.info("All clips already rendered; skipping render step.")
 

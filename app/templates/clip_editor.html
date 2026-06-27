@@ -1,11 +1,21 @@
-{% extends "base.html" %}
+{% extends "layouts/app_shell.html" %}
 {% block title %}SimbioClip — Edit {{ clip.title }}{% endblock %}
+
+{% set job_label = (job.source_url or job.file_name or job.id[:8])[:36] %}
+{% set breadcrumbs = [
+    {"label": "Projects", "href": "/app"},
+    {"label": job_label, "href": "/app/jobs/" ~ job.id},
+    {"label": "Edit clip"}
+] %}
+{% set sidebar_collapsed = true %}
+{% set sidebar_collapsible = true %}
+{% set content_flush = true %}
 
 {% block head_extra %}
 <script type="module" src="https://cdn.jsdelivr.net/npm/media-chrome@4/+esm"></script>
 <style>
-    .editor-wrap { max-width: 1400px; margin: 0 auto; padding: 16px 24px; display: flex; flex-direction: column;
-        height: calc(100vh - 140px); min-height: 0; }
+    .editor-wrap { max-width: none; margin: 0; padding: 16px 20px; display: flex; flex-direction: column;
+        height: calc(100vh - var(--topbar-h)); min-height: 0; }
     .editor-header { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; flex-shrink: 0; }
     .editor-header-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
     .editor-header-left h2 { font-size: 17px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -131,6 +141,115 @@
     .editor-actions .btn-primary, .editor-actions .btn-secondary { flex: 1; font-size: 13px; padding: 10px 14px; }
     .editor-status { font-size: 12px; color: var(--stone); min-height: 20px; }
 
+    /* Repliz upload — brand green */
+    .btn-repliz { display: flex; align-items: center; justify-content: center; gap: 7px;
+        font-size: 13px; font-weight: 600; padding: 9px 14px; border-radius: 9999px;
+        border: 1.5px solid var(--brand-green-dark); background: var(--brand-green-soft); color: var(--brand-green-dark);
+        cursor: pointer; transition: all .15s ease; width: 100%; }
+    .btn-repliz:hover { background: rgba(0,237,100,0.18); border-color: var(--brand-green); }
+    .repliz-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 1000;
+        display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .repliz-modal { background: var(--canvas); border-radius: 14px; width: 520px; max-width: 100%;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.35); overflow: hidden; max-height: 90vh; display: flex; flex-direction: column; }
+    .repliz-modal-hdr { display: flex; align-items: center; justify-content: space-between;
+        padding: 14px 18px; border-bottom: 1px solid var(--hairline); flex-shrink: 0; }
+    .repliz-modal-hdr .rz-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; }
+    .repliz-modal-hdr .rz-close { background: none; border: none; cursor: pointer; color: var(--stone);
+        font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+    .repliz-modal-hdr .rz-close:hover { color: var(--ink); background: var(--surface-soft); }
+    .repliz-modal-hdr .rz-refresh { font-size: 12px; font-weight: 600; color: var(--steel);
+        background: none; border: none; cursor: pointer; display: flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 6px; }
+    .repliz-modal-hdr .rz-refresh:hover { color: var(--ink); background: var(--surface-soft); }
+    .repliz-modal-body { padding: 16px 18px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; flex: 1; }
+    .rz-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.7px; color: var(--stone); }
+    /* Metadata section */
+    .rz-meta-frame { background: var(--surface); border: 1px solid var(--hairline); border-radius: 10px; padding: 12px; }
+    .rz-meta-frame .rz-meta-row { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+    .rz-meta-frame .rz-meta-row:last-child { margin-bottom: 0; }
+    .rz-meta-frame label { font-size: 11px; font-weight: 600; color: var(--steel); }
+    .rz-meta-frame input, .rz-meta-frame textarea { width: 100%; padding: 7px 10px; border-radius: 6px;
+        border: 1px solid var(--hairline-strong); background: var(--canvas); color: var(--ink);
+        font-size: 12px; font-family: var(--font-sans); box-sizing: border-box; }
+    .rz-meta-frame textarea { resize: vertical; min-height: 50px; }
+    .rz-gen-btn { font-size: 10px; font-weight: 700; color: var(--brand-green-dark); background: var(--brand-green-soft);
+        border: 1px solid rgba(0,184,92,0.3); border-radius: 6px; padding: 3px 9px; cursor: pointer;
+        display: inline-flex; align-items: center; gap: 4px; transition: all .15s; margin-left: auto; white-space: nowrap; }
+    .rz-gen-btn:hover { background: rgba(0,237,100,0.2); }
+    .rz-gen-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .rz-meta-hdr { display: flex; align-items: center; gap: 8px; }
+    .rz-meta-hdr label { flex-shrink: 0; }
+    /* Post type picker */
+    .rz-type-row { display: flex; gap: 6px; }
+    .rz-type-btn { flex: 1; padding: 6px 8px; border-radius: 8px; border: 1.5px solid var(--hairline);
+        background: var(--surface); font-size: 11px; font-weight: 600; color: var(--stone);
+        cursor: pointer; text-align: center; transition: all .15s; }
+    .rz-type-btn:hover { border-color: var(--steel); }
+    .rz-type-btn.selected { border-color: var(--brand-green-dark); background: var(--brand-green-soft); color: var(--brand-green-dark); }
+    /* Accounts grid */
+    .rz-accounts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; max-height: 170px; overflow-y: auto; }
+    .rz-account-card { display: flex; align-items: center; gap: 8px; padding: 7px 9px;
+        border-radius: 8px; border: 1.5px solid var(--hairline); background: var(--surface);
+        cursor: pointer; transition: all .15s ease; }
+    .rz-account-card:hover { border-color: var(--steel); }
+    .rz-account-card.selected { border-color: var(--brand-green-dark); background: var(--brand-green-soft); }
+    .rz-account-card.is-scheduled { opacity: 0.45; cursor: not-allowed; background: var(--surface-soft); }
+    .rz-check { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--hairline-strong);
+        flex-shrink: 0; transition: all .15s ease; display: flex; align-items: center; justify-content: center; }
+    .rz-account-card.selected .rz-check { background: var(--brand-green); border-color: var(--brand-green); }
+    .rz-account-card.is-scheduled .rz-check { opacity: 0; }
+    .rz-acct-icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center;
+        justify-content: center; flex-shrink: 0; font-size: 11px; }
+    .rz-acct-info { min-width: 0; }
+    .rz-acct-name { font-size: 11px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rz-acct-handle { font-size: 10px; color: var(--stone); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rz-acct-badge { font-size: 8px; font-weight: 700; padding: 1px 5px; border-radius: 4px;
+        background: var(--brand-green-soft); color: var(--brand-green-dark); flex-shrink: 0; }
+    .rz-accounts-toolbar { display: flex; align-items: center; gap: 8px; }
+    .rz-accounts-toolbar button { font-size: 10px; font-weight: 600; color: var(--brand-green-dark);
+        background: none; border: none; cursor: pointer; padding: 2px 4px; }
+    .rz-accounts-toolbar button:hover { text-decoration: underline; }
+    /* Schedule */
+    .rz-schedule-wrap { display: flex; gap: 8px; align-items: center; }
+    .rz-schedule-input { flex: 1; padding: 7px 10px; border-radius: 6px; box-sizing: border-box;
+        border: 1px solid var(--hairline-strong); background: var(--canvas); color: var(--ink);
+        font-size: 12px; font-family: var(--font-sans); }
+    .rz-tz-label { font-size: 10px; color: var(--stone); white-space: nowrap; font-weight: 600; }
+    /* Submit */
+    .rz-submit-btn { width: 100%; padding: 11px; border-radius: 10px; border: none;
+        background: var(--brand-green-dark); color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+        display: flex; align-items: center; justify-content: center; gap: 8px; transition: background .15s; }
+    .rz-submit-btn:hover:not(:disabled) { background: var(--brand-green); }
+    .rz-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .rz-error { font-size: 11px; color: #ef4444; }
+    .rz-loading { text-align: center; padding: 16px 0; color: var(--stone); font-size: 12px;
+        grid-column: 1/-1; }
+    /* Progress modal */
+    .repliz-progress { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 1001;
+        display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .repliz-progress-card { background: var(--canvas); border-radius: 14px; width: 420px; max-width: 100%;
+        box-shadow: 0 20px 60px rgba(0,0,0,0.35); padding: 20px; }
+    .repliz-progress-card h3 { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .repliz-progress-card .rp-sub { font-size: 11px; color: var(--stone); margin-bottom: 14px; }
+    .rp-item { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 8px;
+        background: var(--surface); margin-bottom: 6px; }
+    .rp-item .rp-icon { width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center;
+        justify-content: center; flex-shrink: 0; font-size: 10px; }
+    .rp-item .rp-info { flex: 1; min-width: 0; }
+    .rp-item .rp-name { font-size: 12px; font-weight: 600; }
+    .rp-item .rp-status { font-size: 10px; color: var(--stone); }
+    .rp-item .rp-status.done { color: var(--brand-green-dark); }
+    .rp-item .rp-status.error { color: #ef4444; }
+    .rp-item .rp-indicator { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+    .rp-item .rp-indicator.pending { background: var(--hairline-strong); }
+    .rp-item .rp-indicator.running { background: var(--brand-green); animation: rp-pulse 1s infinite; }
+    .rp-item .rp-indicator.done { background: var(--brand-green-dark); }
+    .rp-item .rp-indicator.error { background: #ef4444; }
+    @keyframes rp-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+    .rp-close-btn { width: 100%; padding: 9px; border-radius: 8px; border: none;
+        background: var(--surface-soft); color: var(--stone); font-size: 12px; font-weight: 600;
+        cursor: pointer; margin-top: 10px; }
+    .rp-close-btn:hover { background: var(--hairline); }
+
     @media (max-width: 900px) {
         .editor-body { flex-direction: column; }
         .editor-sidebar { width: 100%; flex-direction: row; flex-wrap: wrap; overflow: visible; }
@@ -150,7 +269,7 @@
 <div class="editor-wrap">
     <div class="editor-header">
         <div class="editor-header-left">
-            <a class="back-btn" href="/job/{{ job.id }}">
+            <a class="back-btn" href="/app/jobs/{{ job.id }}">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                 Back to job
             </a>
@@ -279,7 +398,110 @@
                 </div>
             </div>
             <div id="editor-status" class="editor-status"></div>
+            <button class="btn-repliz" onclick="openReplizModal()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+                Upload via Repliz
+            </button>
         </div>
+    </div>
+</div>
+
+<!-- Repliz upload modal -->
+<div id="repliz-backdrop" class="repliz-backdrop" style="display:none;" onclick="if(event.target===this)closeReplizModal()">
+    <div class="repliz-modal">
+        <div class="repliz-modal-hdr">
+            <span class="rz-title">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+                Upload via Repliz
+            </span>
+            <div style="display:flex;align-items:center;gap:6px;">
+                <button class="rz-refresh" onclick="loadReplizAccounts()">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    Refresh
+                </button>
+                <button class="rz-close" onclick="closeReplizModal()" title="Close">&times;</button>
+            </div>
+        </div>
+        <div class="repliz-modal-body">
+            <!-- Clip info -->
+            <div style="background:var(--surface);border-radius:8px;padding:8px 10px;border:1px solid var(--hairline);">
+                <div style="font-size:12px;font-weight:600;">{{ clip.title }}</div>
+                <div style="font-size:10px;color:var(--stone);">Duration: {{ '%.0f' % clip.duration }}s</div>
+            </div>
+
+            <!-- Post Details -->
+            <div class="rz-meta-frame">
+                <div class="rz-meta-row">
+                    <div class="rz-meta-hdr">
+                        <label for="rz-title">Title</label>
+                        <button type="button" class="rz-gen-btn" id="rz-gen-title-btn" onclick="generateMetadata('title')">
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                            AI Generate
+                        </button>
+                    </div>
+                    <input type="text" id="rz-title" placeholder="Enter post title or generate with AI">
+                </div>
+                <div class="rz-meta-row">
+                    <div class="rz-meta-hdr">
+                        <label for="rz-description">Description</label>
+                        <button type="button" class="rz-gen-btn" id="rz-gen-desc-btn" onclick="generateMetadata('description')">
+                            <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                            AI Generate
+                        </button>
+                    </div>
+                    <textarea id="rz-description" rows="2" placeholder="Write a caption or generate with AI"></textarea>
+                </div>
+            </div>
+
+            <!-- Post type -->
+            <div>
+                <div class="rz-label" style="margin-bottom:6px;">Post type</div>
+                <div class="rz-type-row" id="rz-type-row">
+                    <button type="button" class="rz-type-btn selected" data-type="video">Video</button>
+                    <button type="button" class="rz-type-btn" data-type="reel">Reel</button>
+                    <button type="button" class="rz-type-btn" data-type="story">Story</button>
+                </div>
+            </div>
+
+            <!-- Select Platforms -->
+            <div>
+                <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+                    <span class="rz-label">Select Platforms</span>
+                    <div class="rz-accounts-toolbar">
+                        <button onclick="rzSelectAll()">Select All</button>
+                        <button onclick="rzDeselectAll()">Deselect</button>
+                    </div>
+                </div>
+                <div id="rz-accounts-grid" class="rz-accounts-grid">
+                    <div class="rz-loading"><span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:6px;"></span>Loading accounts…</div>
+                </div>
+            </div>
+
+            <!-- Schedule -->
+            <div>
+                <div class="rz-label" style="margin-bottom:6px;">Schedule (max 7 days ahead)</div>
+                <div class="rz-schedule-wrap">
+                    <input type="datetime-local" id="rz-schedule-input" class="rz-schedule-input">
+                    <span class="rz-tz-label">WIB (GMT+7)</span>
+                </div>
+            </div>
+
+            <div id="rz-error" class="rz-error" style="display:none;"></div>
+            <button id="rz-submit-btn" class="rz-submit-btn" onclick="submitReplizSchedule()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+                Upload &amp; Schedule
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Repliz progress overlay -->
+<div id="repliz-progress" class="repliz-progress" style="display:none;">
+    <div class="repliz-progress-card">
+        <h3>Uploading to Repliz</h3>
+        <p class="rp-sub">Scheduling clip to selected platforms…</p>
+        <div id="rp-items"></div>
+        <button class="rp-close-btn" id="rp-close-btn" onclick="closeProgressModal()" style="display:none;">Done</button>
     </div>
 </div>
 
@@ -804,5 +1026,275 @@
     window.addEventListener('resize', function() {
         if (state.frameW) updateCropRect();
     });
+
+    // ===== REPLIZ UPLOAD =====
+    var rzSelected = {};
+    var rzScheduledIds = [];
+    var rzPostType = 'video';
+
+    var RZ_ICONS = {
+        tiktok: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M19.59 6.69a4.83 4.83 0 0 1-3.77-4.25V2h-3.45v13.67a2.89 2.89 0 0 1-2.88 2.5 2.89 2.89 0 0 1-2.89-2.89 2.89 2.89 0 0 1 2.89-2.89c.28 0 .54.04.79.1V9.01a6.33 6.33 0 0 0-.79-.05 6.34 6.34 0 0 0-6.34 6.34 6.34 6.34 0 0 0 6.34 6.34 6.34 6.34 0 0 0 6.33-6.34V9.11a8.16 8.16 0 0 0 4.77 1.52V7.19a4.85 4.85 0 0 1-1-.5z"/></svg>',
+        instagram: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>',
+        youtube: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46a2.78 2.78 0 0 0-1.95 1.96A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.41 19.6C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 0 0 1.95-1.96A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58zM9.75 15.02V8.98L15.5 12l-5.75 3.02z"/></svg>',
+        facebook: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>',
+        twitter: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.73-8.835L1.254 2.25H8.08l4.253 5.622zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>',
+        linkedin: '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-4 0v7H10v-7a6 6 0 0 1 6-6zM2 9h4v12H2z"/><circle cx="4" cy="4" r="2"/></svg>',
+        threads: '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19.25 8.5c-1.5-1.5-3.5-2.5-7-2.5-4 0-6.5 1.5-8 4 0 0-1 2 0 5 1 3 3.5 5.5 8 5.5 4 0 6-1.5 7-3" stroke-linecap="round"/><path d="M12 15c-2 0-2.5-1.5-2.5-3s.5-3 2.5-3c1.5 0 2 1 2 2.5 0 2-1 3.5-3 3.5z" fill="currentColor"/></svg>',
+    };
+    var RZ_COLORS = { tiktok:'#000', instagram:'#E1306C', youtube:'#FF0000', facebook:'#1877F2', twitter:'#000', linkedin:'#0A66C2', threads:'#000' };
+    var CHECK_SVG = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+
+    // Post type buttons
+    document.getElementById('rz-type-row').addEventListener('click', function(e) {
+        var btn = e.target.closest('.rz-type-btn');
+        if (!btn) return;
+        document.querySelectorAll('.rz-type-btn').forEach(function(b) { b.classList.remove('selected'); });
+        btn.classList.add('selected');
+        rzPostType = btn.dataset.type;
+    });
+
+    function openReplizModal() {
+        rzSelected = {};
+        var dt = new Date(Date.now() + 60 * 60 * 1000);
+        dt.setMinutes(0, 0, 0);
+        var local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000);
+        document.getElementById('rz-schedule-input').value = local.toISOString().slice(0, 16);
+        document.getElementById('repliz-backdrop').style.display = 'flex';
+        document.getElementById('rz-title').value = '';
+        document.getElementById('rz-description').value = '';
+        loadReplizAccounts();
+    }
+
+    function closeReplizModal() {
+        document.getElementById('repliz-backdrop').style.display = 'none';
+    }
+
+    function loadReplizAccounts() {
+        var grid = document.getElementById('rz-accounts-grid');
+        grid.innerHTML = '<div class="rz-loading"><span class="spinner" style="width:11px;height:11px;display:inline-block;vertical-align:middle;margin-right:5px;"></span>Loading…</div>';
+        fetch('/api/repliz/accounts?token=' + state.apiToken)
+            .then(function(r) { return r.ok ? r.json() : r.json().then(function(e){ throw new Error(e.detail || 'Error'); }); })
+            .then(function(data) {
+                var docs = data.docs || (Array.isArray(data) ? data : []);
+                if (!docs.length) {
+                    grid.innerHTML = '<div class="rz-loading">No accounts. Connect accounts in Repliz dashboard.</div>';
+                    return;
+                }
+                // Get already-scheduled IDs from clip data
+                rzScheduledIds = {{ clip.repliz_scheduled_account_ids() | tojson }};
+                renderRzAccounts(docs);
+            })
+            .catch(function(e) {
+                grid.innerHTML = '<div class="rz-loading" style="color:#ef4444;">' + (e.message || 'Failed to load') + '</div>';
+            });
+    }
+
+    function renderRzAccounts(accounts) {
+        var grid = document.getElementById('rz-accounts-grid');
+        grid.innerHTML = '';
+        accounts.forEach(function(acct) {
+            var id = String(acct._id || acct.id || acct.accountId || '');
+            var name = acct.name || acct.accountName || id;
+            var handle = (acct.username || acct.handle || '').replace(/^@/, '');
+            var platform = (acct.type || acct.platform || '').toLowerCase();
+            var color = RZ_COLORS[platform] || '#6b7280';
+            var icon = RZ_ICONS[platform] || '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>';
+            var isScheduled = rzScheduledIds.indexOf(id) >= 0;
+            var isSel = !!rzSelected[id];
+            var card = document.createElement('div');
+            card.className = 'rz-account-card' + (isSel ? ' selected' : '') + (isScheduled ? ' is-scheduled' : '');
+            card.dataset.id = id;
+            card.innerHTML =
+                '<div class="rz-check">' + (isSel ? CHECK_SVG : '') + '</div>' +
+                '<div class="rz-acct-icon" style="background:' + color + '18;color:' + color + '">' + icon + '</div>' +
+                '<div class="rz-acct-info"><div class="rz-acct-name">' + name + '</div>' +
+                (handle ? '<div class="rz-acct-handle">@' + handle + '</div>' : '') + '</div>' +
+                (isScheduled ? '<span class="rz-acct-badge">Done</span>' : '');
+            if (!isScheduled) {
+                card.addEventListener('click', function() {
+                    var s = card.classList.toggle('selected');
+                    card.querySelector('.rz-check').innerHTML = s ? CHECK_SVG : '';
+                    if (s) rzSelected[id] = name; else delete rzSelected[id];
+                });
+            }
+            grid.appendChild(card);
+        });
+    }
+
+    function rzSelectAll() {
+        document.querySelectorAll('.rz-account-card:not(.is-scheduled)').forEach(function(card) {
+            var id = card.dataset.id;
+            card.classList.add('selected');
+            card.querySelector('.rz-check').innerHTML = CHECK_SVG;
+            rzSelected[id] = card.querySelector('.rz-acct-name').textContent;
+        });
+    }
+
+    function rzDeselectAll() {
+        document.querySelectorAll('.rz-account-card.selected').forEach(function(card) {
+            card.classList.remove('selected');
+            card.querySelector('.rz-check').innerHTML = '';
+            delete rzSelected[card.dataset.id];
+        });
+    }
+
+    function generateMetadata(target) {
+        var btn = document.getElementById('rz-gen-' + target + '-btn');
+        if (btn.disabled) return;
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width:8px;height:8px;display:inline-block;vertical-align:middle;"></span>';
+        fetch('/api/jobs/' + state.jobId + '/clips/' + state.clipId + '/repliz/generate-metadata', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + state.apiToken, 'Content-Type': 'application/json' },
+        })
+        .then(function(r) { return r.ok ? r.json() : r.json().then(function(e){ throw new Error(e.detail || 'Failed'); }); })
+        .then(function(data) {
+            if (target === 'title' || !target) {
+                document.getElementById('rz-title').value = data.title || '';
+            }
+            if (target === 'description' || !target) {
+                document.getElementById('rz-description').value = data.description || '';
+            }
+        })
+        .catch(function(e) {
+            showRzError('AI generation failed: ' + e.message);
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> AI Generate';
+        });
+    }
+
+    function submitReplizSchedule() {
+        var accountIds = Object.keys(rzSelected);
+        if (!accountIds.length) { showRzError('Select at least one platform.'); return; }
+        var scheduleVal = document.getElementById('rz-schedule-input').value;
+        if (!scheduleVal) { showRzError('Select a schedule time.'); return; }
+        hideRzError();
+
+        // Convert local (WIB/GMT+7) to UTC
+        var localDt = new Date(scheduleVal);
+        var utcStr = localDt.toISOString();
+
+        // Check max 7 days
+        var maxDt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+        if (localDt > maxDt) { showRzError('Schedule cannot be more than 7 days ahead.'); return; }
+        if (localDt <= new Date()) { showRzError('Schedule must be in the future.'); return; }
+
+        var title = document.getElementById('rz-title').value.trim();
+        var description = document.getElementById('rz-description').value.trim();
+
+        showProgressModal(accountIds);
+        var btn = document.getElementById('rz-submit-btn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:5px;border-color:rgba(255,255,255,.3);border-top-color:#fff;"></span>Uploading &amp; scheduling…';
+
+        fetch('/api/jobs/' + state.jobId + '/clips/' + state.clipId + '/repliz/schedule', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + state.apiToken },
+            body: JSON.stringify({
+                account_ids: accountIds,
+                account_names: rzSelected,
+                schedule_at: utcStr,
+                post_type: rzPostType,
+                title: title,
+                description: description,
+            })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            btn.disabled = false;
+            btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg> Upload &amp; Schedule';
+            if (data.scheduled) {
+                updateProgressDone(data);
+                var n = (data.scheduled || []).length;
+                var st = document.getElementById('editor-status');
+                st.textContent = 'Scheduled to ' + n + ' account(s) via Repliz.';
+                setTimeout(function(){ st.textContent = ''; }, 5000);
+            } else if (data.detail) {
+                updateProgressError(data.detail);
+            }
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg> Upload &amp; Schedule';
+            updateProgressError('Network error');
+        });
+    }
+
+    function showRzError(msg) { var e = document.getElementById('rz-error'); e.textContent = msg; e.style.display = 'block'; }
+    function hideRzError() { var e = document.getElementById('rz-error'); e.textContent = ''; e.style.display = 'none'; }
+
+    // ===== Progress modal =====
+    var rpAccounts = [];
+
+    function showProgressModal(accountIds) {
+        document.getElementById('repliz-progress').style.display = 'flex';
+        var container = document.getElementById('rp-items');
+        container.innerHTML = '';
+        rpAccounts = [];
+        accountIds.forEach(function(id) {
+            var name = rzSelected[id] || id;
+            var card = document.querySelector('.rz-account-card[data-id="' + id + '"]');
+            var platform = '';
+            var color = '#6b7280';
+            var icon = '';
+            if (card) {
+                var iconEl = card.querySelector('.rz-acct-icon');
+                if (iconEl) {
+                    platform = iconEl.style.color || '';
+                    color = iconEl.style.background || '#6b7280';
+                    icon = iconEl.innerHTML;
+                }
+            }
+            rpAccounts.push({ id: id, name: name, status: 'pending', platform: platform, color: color, icon: icon });
+        });
+        renderProgressItems();
+        document.getElementById('rp-close-btn').style.display = 'none';
+    }
+
+    function renderProgressItems() {
+        var container = document.getElementById('rp-items');
+        container.innerHTML = '';
+        rpAccounts.forEach(function(acc) {
+            var div = document.createElement('div');
+            div.className = 'rp-item';
+            div.dataset.id = acc.id;
+            div.innerHTML =
+                '<div class="rp-indicator ' + acc.status + '"></div>' +
+                '<div class="rp-icon" style="background:' + acc.color + ';color:#fff;font-size:10px;">' + (acc.icon || '<span>?</span>') + '</div>' +
+                '<div class="rp-info"><div class="rp-name">' + acc.name + '</div>' +
+                '<div class="rp-status ' + acc.status + '">' + statusLabel(acc.status) + '</div></div>';
+            container.appendChild(div);
+        });
+    }
+
+    function statusLabel(s) {
+        return s === 'pending' ? 'Waiting…' : s === 'running' ? 'Uploading & scheduling…' : s === 'done' ? 'Scheduled ✓' : 'Failed ✗';
+    }
+
+    function updateProgressItem(id, status) {
+        var acc = rpAccounts.find(function(a) { return a.id === id; });
+        if (acc) { acc.status = status; renderProgressItems(); }
+    }
+
+    function updateProgressDone(data) {
+        (data.scheduled || []).forEach(function(s) { updateProgressItem(s.account_id, 'done'); });
+        (data.errors || []).forEach(function(e) {
+            // crude: find by error string
+        });
+        document.getElementById('rp-close-btn').style.display = 'block';
+    }
+
+    function updateProgressError(msg) {
+        rpAccounts.forEach(function(acc) { acc.status = 'error'; });
+        renderProgressItems();
+        document.getElementById('rp-close-btn').style.display = 'block';
+    }
+
+    function closeProgressModal() {
+        document.getElementById('repliz-progress').style.display = 'none';
+        closeReplizModal();
+    }
 </script>
 {% endblock %}

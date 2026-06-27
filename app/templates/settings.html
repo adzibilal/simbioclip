@@ -1,0 +1,432 @@
+{% extends "layouts/app_shell.html" %}
+{% block title %}SimbioClip — Settings{% endblock %}
+
+{% set breadcrumbs = [
+    {"label": "Projects", "href": "/app"},
+    {"label": "Settings"}
+] %}
+
+{% block head_extra %}
+<style>
+    .settings-page { padding: 0 0 64px; }
+    .settings-header { margin-bottom: 28px; }
+    .settings-header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+    .settings-header p { margin-top: 6px; color: var(--steel); font-size: 14px; }
+    .settings-grid { display: grid; gap: 20px; }
+    .settings-card { background: var(--canvas); border: 1px solid var(--hairline); border-radius: 14px; padding: 22px 24px; box-shadow: var(--shadow-1); }
+    .settings-card h2 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+    .settings-card .hint { font-size: 12px; color: var(--steel); margin-bottom: 16px; line-height: 1.5; }
+    .settings-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 14px; }
+    .settings-field { display: flex; flex-direction: column; gap: 6px; }
+    .settings-field label { font-size: 12px; font-weight: 600; color: var(--slate); }
+    .settings-field input, .settings-field select, .settings-field textarea {
+        font-family: var(--font-sans); font-size: 13px; padding: 9px 12px;
+        border: 1px solid var(--hairline-strong); border-radius: 8px; background: var(--surface);
+        color: var(--ink); outline: none;
+    }
+    .settings-field textarea { min-height: 80px; font-family: var(--font-mono); font-size: 12px; resize: vertical; }
+    .settings-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+    .settings-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; }
+    .stt-router-fields { display: none; }
+    .stt-router-fields.visible { display: contents; }
+    .provider-tab { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+    .provider-tab button { padding: 6px 14px; border: 1px solid var(--hairline-strong); border-radius: 8px; background: var(--surface); font-size: 12px; font-weight: 600; cursor: pointer; color: var(--slate); }
+    .provider-tab button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    .provider-panel { display: none; }
+    .provider-panel.visible { display: block; }
+    .hidden { display: none !important; }
+    .provider-status { font-size: 11px; margin-top: 4px; }
+    .provider-status.ok { color: #16a34a; }
+    .provider-status.err { color: #dc2626; }
+    .range-row { display: flex; align-items: center; gap: 12px; }
+    .range-row input[type=range] { flex: 1; }
+    .range-row span { min-width: 48px; text-align: right; font-size: 13px; font-weight: 600; }
+    .color-row { display: flex; align-items: center; gap: 10px; }
+    .color-row input[type=color] { width: 40px; height: 36px; padding: 2px; border-radius: 6px; cursor: pointer; }
+    .preview-canvas { width: 100%; max-width: 240px; height: auto; aspect-ratio: 9/16; border-radius: 8px; border: 1px solid var(--hairline); background: #222; display: block; margin-top: 8px; }
+    .preview-col { display: flex; flex-direction: column; gap: 8px; }
+    .btn-danger-sm { background: #dc2626; color: #fff; border: none; border-radius: 6px; padding: 6px 12px; font-size: 14px; cursor: pointer; line-height: 1; }
+    .btn-danger-sm:hover { background: #b91c1c; }
+    .llm-router-row { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 10px; align-items: end; margin-bottom: 10px; padding: 10px; background: var(--surface-soft); border-radius: 8px; }
+    .llm-router-row .settings-field { margin: 0; }
+    .wm-upload-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .wm-upload-row input[type=file] { flex: 1; }
+    .wm-preview-img { max-width: 100px; max-height: 80px; border-radius: 6px; border: 1px solid var(--hairline); object-fit: contain; display: none; }
+    .preview-grid { display: grid; grid-template-columns: 1fr 240px; gap: 20px; align-items: start; }
+    @media (max-width: 700px) { .preview-grid { grid-template-columns: 1fr; } .llm-router-row { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="settings-page">
+<div class="settings-header">
+    <h1>Settings</h1>
+    <p>All settings are writable and stored in <code>data/config.json</code>.</p>
+</div>
+
+<div class="settings-grid">
+
+<!-- ── Authentication ── -->
+<section class="settings-card">
+    <h2>Authentication</h2>
+    <p class="hint">API token for dashboard access.</p>
+    <div class="settings-row">
+        <div class="settings-field">
+            <label for="api_token">API Token</label>
+            <input type="text" id="api_token">
+        </div>
+    </div>
+    <div class="settings-actions">
+        <button type="button" class="btn-primary" onclick="saveAuth()">Save</button>
+    </div>
+</section>
+
+<!-- ── AI Providers ── -->
+<section class="settings-card">
+    <h2>AI Providers</h2>
+    <p class="hint">Per-task AI providers. Each task can use a different provider and API key.</p>
+
+    <div class="provider-tab" id="provider-tabs">
+        <button class="active" data-task="highlight-finder" onclick="switchProviderTab('highlight-finder')">Highlight Finder</button>
+        <button data-task="caption-maker" onclick="switchProviderTab('caption-maker')">Caption Maker</button>
+        <button data-task="hook-maker" onclick="switchProviderTab('hook-maker')">Hook Maker (TTS)</button>
+    </div>
+
+    {% for task_key in ['highlight-finder', 'caption-maker', 'hook-maker'] %}
+    <div class="provider-panel {% if loop.first %}visible{% endif %}" id="panel-{{ task_key }}">
+        <div class="settings-row">
+            <div class="settings-field">
+                <label>Provider</label>
+                <select id="provider-type-{{ task_key }}" onchange="onProviderTypeChange('{{ task_key }}')">
+                    {% for key, info in [('ytclip','YTClip AI'),('openai','OpenAI'),('groq','Groq'),('google','Google Gemini'),('anthropic','Anthropic'),('custom','Custom')] %}
+                    <option value="{{ key }}">{{ info }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="settings-field hidden" id="provider-custom-url-{{ task_key }}">
+                <label>Base URL</label>
+                <input type="url" id="provider-custom-url-input-{{ task_key }}" placeholder="https://...">
+            </div>
+            <div class="settings-field" id="provider-url-row-{{ task_key }}">
+                <label>Base URL</label>
+                <input type="url" id="provider-url-{{ task_key }}" placeholder="https://...">
+            </div>
+            <div class="settings-field">
+                <label>API Key</label>
+                <input type="text" id="provider-key-{{ task_key }}" placeholder="sk-...">
+            </div>
+            <div class="settings-field">
+                <label>Model</label>
+                <select id="provider-model-{{ task_key }}" style="width:100%;">
+                    <option value="">Select or type…</option>
+                </select>
+            </div>
+        </div>
+        <div class="settings-actions">
+            <button type="button" class="btn-secondary" id="provider-test-{{ task_key }}" onclick="testProvider('{{ task_key }}')">Validate & Load Models</button>
+        </div>
+        <div id="provider-status-{{ task_key }}" class="provider-status"></div>
+    </div>
+    {% endfor %}
+    <div class="settings-actions" style="margin-top:8px;">
+        <button type="button" class="btn-primary" onclick="saveAIProviders()">Save AI Providers</button>
+    </div>
+</section>
+
+<!-- ── LLM Routers ── -->
+<section class="settings-card">
+    <h2>LLM Routers (Fallback)</h2>
+    <p class="hint">Fallback chain of LLM routers. First router is tried first; if it fails, the next is used.</p>
+    <div id="llm-routers-list"></div>
+    <button type="button" class="btn-secondary" onclick="addLlmRouter()" style="margin-top:8px;">+ Add Router</button>
+    <div class="settings-actions" style="margin-top:8px;">
+        <button type="button" class="btn-primary" onclick="saveLlmRouters()">Save</button>
+    </div>
+</section>
+
+<!-- ── Speech‑to‑Text ── -->
+<section class="settings-card">
+    <h2>Speech-to-Text</h2>
+    <p class="hint"><code>local</code> uses faster‑whisper on CPU. <code>router</code> uses an API.</p>
+    <div class="settings-row">
+        <div class="settings-field">
+            <label for="stt_mode">STT Mode</label>
+            <select id="stt_mode" onchange="toggleSttFields()">
+                <option value="local">local</option>
+                <option value="router">router</option>
+            </select>
+        </div>
+    </div>
+    <div id="stt-router-fields" class="settings-row stt-router-fields">
+        <div class="settings-field"><label for="stt_base_url">STT Base URL</label><input type="url" id="stt_base_url"></div>
+        <div class="settings-field"><label for="stt_api_key">STT API Key</label><input type="text" id="stt_api_key"></div>
+        <div class="settings-field"><label for="stt_model">STT Model</label><input type="text" id="stt_model"></div>
+        <div class="settings-field"><label for="stt_model_fallback">STT Model Fallback</label><input type="text" id="stt_model_fallback"></div>
+    </div>
+    <div class="settings-actions">
+        <button type="button" class="btn-primary" onclick="saveStt()">Save</button>
+    </div>
+</section>
+
+<!-- ── Video Download ── -->
+<section class="settings-card">
+    <h2>Video Download</h2>
+    <p class="hint">yt‑dlp options for video sources.</p>
+    <div class="settings-row">
+        <div class="settings-field"><label for="cookies_file">Cookies file path</label><input type="text" id="cookies_file"></div>
+        <div class="settings-field"><label for="cookies_from_browser">Cookies from browser</label><input type="text" id="cookies_from_browser"></div>
+        <div class="settings-field"><label for="concurrent_fragments">Concurrent fragments</label><input type="number" id="concurrent_fragments"></div>
+        <div class="settings-field"><label for="throttled_rate">Throttled rate</label><input type="text" id="throttled_rate"></div>
+        <div class="settings-field"><label for="aria2c_connections">Aria2c connections</label><input type="number" id="aria2c_connections"></div>
+        <div class="settings-field settings-toggle" style="align-self:end;">
+            <input type="checkbox" id="aria2c_enabled"><label for="aria2c_enabled">Aria2c enabled</label>
+        </div>
+    </div>
+    <div class="settings-actions">
+        <button type="button" class="btn-primary" onclick="saveVideoDownload()">Save</button>
+    </div>
+</section>
+
+<!-- ── Repliz ── -->
+<section class="settings-card">
+    <h2>Repliz</h2>
+    <p class="hint">Social media scheduling via Repliz API.</p>
+    <div class="settings-row">
+        <div class="settings-field"><label for="repliz_access_key">Access Key</label><input type="text" id="repliz_access_key"></div>
+        <div class="settings-field"><label for="repliz_secret_key">Secret Key</label><input type="text" id="repliz_secret_key"></div>
+        <div class="settings-field"><label for="public_base_url">Public Base URL</label><input type="url" id="public_base_url"></div>
+        <div class="settings-field"><label for="repliz_default_account_id">Default Account ID</label><input type="text" id="repliz_default_account_id"></div>
+        <div class="settings-field"><label for="repliz_post_type">Default post type</label>
+            <select id="repliz_post_type"><option value="video">video</option><option value="reel">reel</option><option value="story">story</option></select>
+        </div>
+        <div class="settings-field"><label for="repliz_schedule_offset_minutes">Auto‑schedule offset (min)</label><input type="number" id="repliz_schedule_offset_minutes"></div>
+        <div class="settings-field settings-toggle" style="align-self:end;">
+            <input type="checkbox" id="repliz_auto_schedule"><label for="repliz_auto_schedule">Auto‑schedule after render</label>
+        </div>
+    </div>
+    <div class="settings-actions">
+        <button type="button" class="btn-primary" onclick="saveRepliz()">Save</button>
+        <button type="button" class="btn-secondary" onclick="testRepliz()">Test Repliz</button>
+    </div>
+</section>
+
+<!-- ── S3 Storage ── -->
+<section class="settings-card">
+    <h2>S3 / SeaweedFS Storage</h2>
+    <p class="hint">S3‑compatible storage for video uploads.</p>
+    <div class="settings-row">
+        <div class="settings-field"><label for="aws_endpoint">Endpoint</label><input type="url" id="aws_endpoint"></div>
+        <div class="settings-field"><label for="aws_bucket">Bucket</label><input type="text" id="aws_bucket"></div>
+        <div class="settings-field"><label for="aws_region">Region</label><input type="text" id="aws_region"></div>
+        <div class="settings-field"><label for="aws_folder_name">Folder prefix</label><input type="text" id="aws_folder_name"></div>
+        <div class="settings-field"><label for="aws_access_key_id">Access Key ID</label><input type="text" id="aws_access_key_id"></div>
+        <div class="settings-field"><label for="aws_secret_access_key">Secret Access Key</label><input type="text" id="aws_secret_access_key"></div>
+        <div class="settings-field settings-toggle" style="align-self:end;">
+            <input type="checkbox" id="aws_use_path_style"><label for="aws_use_path_style">Path‑style endpoint</label>
+        </div>
+    </div>
+    <div class="settings-actions">
+        <button type="button" class="btn-primary" onclick="saveS3()">Save</button>
+        <button type="button" class="btn-secondary" onclick="testS3()">Test S3 Connection</button>
+    </div>
+</section>
+
+<!-- ── Watermark ── -->
+<section class="settings-card">
+    <h2>Watermark</h2>
+    <p class="hint">Overlay a PNG logo on all rendered clips.</p>
+    <div class="preview-grid">
+        <div>
+            <div class="settings-field settings-toggle" style="margin-bottom:12px;">
+                <input type="checkbox" id="wm-enabled"><label for="wm-enabled">Enable watermark</label>
+            </div>
+            <div class="settings-field">
+                <label>Watermark image (PNG)</label>
+                <div class="wm-upload-row">
+                    <input type="file" id="wm-upload" accept=".png">
+                    <button type="button" class="btn-secondary" onclick="uploadWatermark()">Upload</button>
+                </div>
+                <input type="hidden" id="wm-path">
+                <img id="wm-preview-img" class="wm-preview-img" alt="">
+            </div>
+            <div class="settings-row" style="margin-top:10px;">
+                <div class="settings-field">
+                    <label>Position X</label>
+                    <div class="range-row">
+                        <input type="range" id="wm-pos-x" min="0" max="100" value="85" oninput="onRange('wm-pos-x','wm-pos-x-val')">
+                        <span id="wm-pos-x-val">85%</span>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Position Y</label>
+                    <div class="range-row">
+                        <input type="range" id="wm-pos-y" min="0" max="100" value="5" oninput="onRange('wm-pos-y','wm-pos-y-val')">
+                        <span id="wm-pos-y-val">5%</span>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Opacity</label>
+                    <div class="range-row">
+                        <input type="range" id="wm-opacity" min="0" max="100" value="80" oninput="onRange('wm-opacity','wm-opacity-val')">
+                        <span id="wm-opacity-val">80%</span>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Scale (% width)</label>
+                    <div class="range-row">
+                        <input type="range" id="wm-scale" min="5" max="50" value="12" oninput="onRange('wm-scale','wm-scale-val')">
+                        <span id="wm-scale-val">12%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-actions">
+                <button type="button" class="btn-primary" onclick="saveWatermark()">Save</button>
+            </div>
+        </div>
+        <div class="preview-col">
+            <label style="font-size:12px;font-weight:600;color:var(--slate);">Preview</label>
+            <canvas id="wm-preview-canvas" class="preview-canvas" width="180" height="320"></canvas>
+        </div>
+    </div>
+</section>
+
+<!-- ── YT Source Credit ── -->
+<section class="settings-card">
+    <h2>YT Source Credit</h2>
+    <p class="hint">Shows <code>Source: Channel Name</code> automatically on clips from YouTube.</p>
+    <div class="preview-grid">
+        <div>
+            <div class="settings-field settings-toggle" style="margin-bottom:12px;">
+                <input type="checkbox" id="cr-enabled"><label for="cr-enabled">Enable credit watermark</label>
+            </div>
+            <div class="settings-row">
+                <div class="settings-field">
+                    <label>Position X</label>
+                    <div class="range-row">
+                        <input type="range" id="cr-pos-x" min="0" max="100" value="50" oninput="onRange('cr-pos-x','cr-pos-x-val')">
+                        <span id="cr-pos-x-val">50%</span>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Position Y</label>
+                    <div class="range-row">
+                        <input type="range" id="cr-pos-y" min="0" max="100" value="95" oninput="onRange('cr-pos-y','cr-pos-y-val')">
+                        <span id="cr-pos-y-val">95%</span>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Text size (% height)</label>
+                    <div class="range-row">
+                        <input type="range" id="cr-size" min="0.5" max="10" step="0.1" value="2.2" oninput="onRange('cr-size','cr-size-val')">
+                        <span id="cr-size-val">2.2%</span>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Opacity</label>
+                    <div class="range-row">
+                        <input type="range" id="cr-opacity" min="0" max="100" value="30" oninput="onRange('cr-opacity','cr-opacity-val')">
+                        <span id="cr-opacity-val">30%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-actions">
+                <button type="button" class="btn-primary" onclick="saveCreditWatermark()">Save</button>
+            </div>
+        </div>
+        <div class="preview-col">
+            <label style="font-size:12px;font-weight:600;color:var(--slate);">Preview</label>
+            <canvas id="cr-preview-canvas" class="preview-canvas" width="180" height="320"></canvas>
+        </div>
+    </div>
+</section>
+
+<!-- ── Hook Style ── -->
+<section class="settings-card">
+    <h2>Hook Style</h2>
+    <p class="hint">Style for the opening hook overlay text on each clip.</p>
+    <div class="preview-grid">
+        <div>
+            <div class="settings-row">
+                <div class="settings-field">
+                    <label>Font size (% width)</label>
+                    <div class="range-row">
+                        <input type="range" id="hk-font-size" min="1" max="15" step="0.5" value="4.5" oninput="onRange('hk-font-size','hk-font-size-val')">
+                        <span id="hk-font-size-val">4.5%</span>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Font color</label>
+                    <div class="color-row">
+                        <input type="color" id="hk-font-color" value="#00a000" oninput="onRange('hk-fc','')">
+                        <input type="text" id="hk-font-color-hex" value="#00a000" style="width:90px;font-family:var(--font-mono);font-size:12px;" oninput="document.getElementById('hk-font-color').value=this.value;drawHookCanvas()">
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Background color</label>
+                    <div class="color-row">
+                        <input type="color" id="hk-bg-color" value="#ffffff" oninput="onRange('hk-bc','')">
+                        <input type="text" id="hk-bg-color-hex" value="#ffffff" style="width:90px;font-family:var(--font-mono);font-size:12px;" oninput="document.getElementById('hk-bg-color').value=this.value;drawHookCanvas()">
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Corner radius (px)</label>
+                    <div class="range-row">
+                        <input type="range" id="hk-corner-radius" min="0" max="60" value="8" oninput="onRange('hk-corner-radius','hk-corner-radius-val')">
+                        <span id="hk-corner-radius-val">8</span>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-row">
+                <div class="settings-field">
+                    <label>Position X</label>
+                    <div class="range-row">
+                        <input type="range" id="hk-pos-x" min="0" max="100" value="50" oninput="onRange('hk-pos-x','hk-pos-x-val')">
+                        <span id="hk-pos-x-val">50%</span>
+                    </div>
+                </div>
+                <div class="settings-field">
+                    <label>Position Y</label>
+                    <div class="range-row">
+                        <input type="range" id="hk-pos-y" min="0" max="100" value="70" oninput="onRange('hk-pos-y','hk-pos-y-val')">
+                        <span id="hk-pos-y-val">70%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-actions">
+                <button type="button" class="btn-primary" onclick="saveHookStyle()">Save</button>
+            </div>
+        </div>
+        <div class="preview-col">
+            <label style="font-size:12px;font-weight:600;color:var(--slate);">Preview</label>
+            <canvas id="hk-preview-canvas" class="preview-canvas" width="180" height="320"></canvas>
+        </div>
+    </div>
+</section>
+
+<!-- ── LLM Advanced ── -->
+<section class="settings-card">
+    <h2>LLM Advanced</h2>
+    <p class="hint">Timeout and retry settings for AI operations.</p>
+    <div class="settings-row">
+        <div class="settings-field"><label for="llm_timeout">Timeout (seconds)</label><input type="number" id="llm_timeout"></div>
+        <div class="settings-field"><label for="llm_max_retries">Max retries</label><input type="number" id="llm_max_retries"></div>
+    </div>
+    <div class="settings-actions">
+        <button type="button" class="btn-primary" onclick="saveLlmAdvanced()">Save</button>
+        <button type="button" class="btn-secondary" onclick="testLlm()">Test LLM</button>
+    </div>
+</section>
+
+</div><!-- .settings-grid -->
+</div>
+
+<script src="/static/js/settings.js"></script>
+<script>
+function switchProviderTab(taskKey) {
+    document.querySelectorAll('.provider-panel').forEach(el => el.classList.remove('visible'));
+    document.querySelectorAll('.provider-tab button').forEach(el => el.classList.remove('active'));
+    document.getElementById('panel-' + taskKey).classList.add('visible');
+    document.querySelector(`.provider-tab button[data-task="${taskKey}"]`).classList.add('active');
+}
+</script>
+{% endblock %}

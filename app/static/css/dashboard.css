@@ -1,0 +1,80 @@
+/* Dashboard toolbar — card styles live in cards.css */
+.btn-ghost-sm {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    background: var(--surface);
+    color: var(--slate);
+    border: 1px solid var(--hairline-strong);
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    transition: all 0.15s ease;
+}
+
+.btn-ghost-sm:hover { background: var(--surface-soft); border-color: var(--steel); color: var(--ink); }
+.btn-ghost-sm:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-danger-sm {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 5px 11px;
+    background: transparent;
+    color: var(--accent-pink);
+    border: 1px solid transparent;
+    border-radius: 9999px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    transition: all 0.15s ease;
+}
+
+.btn-danger-sm:hover { border-color: #FFD9D6; background: #FFF1F0; }
+.btn-danger-sm:disabled { opacity: 0.35; cursor: not-allowed; }
+
+.drop-wrap { position: relative; display: inline-block; }
+
+.drop-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    min-width: 170px;
+    background: var(--canvas);
+    border: 1px solid var(--hairline-strong);
+    border-radius: 12px;
+    box-shadow: var(--shadow-3);
+    padding: 6px;
+    display: none;
+    z-index: 20;
+}
+
+.drop-menu.open { display: block; }
+
+.drop-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--ink);
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: var(--font-sans);
+    transition: background 0.12s ease;
+    white-space: nowrap;
+}
+
+.drop-item:hover { background: var(--surface-soft); }
+.drop-item.danger { color: var(--accent-pink); }
+.drop-item.danger:hover { background: #FFF1F0; }
+.drop-divider { height: 1px; background: var(--hairline); margin: 4px 6px; }
+
+.empty-state-cta { margin-top: 16px; }

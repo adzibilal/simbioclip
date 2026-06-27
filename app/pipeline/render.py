@@ -815,15 +815,14 @@ def render_clip_ffmpeg(
     layout_params: Dict[str, Any] = None,
     progress_callback=None,
     aspect_ratio: str = "9:16",
-    audio_ducking: bool = False,
     speaker_segments: Optional[List[Dict[str, Any]]] = None,
     trim_start: Optional[float] = None,
     trim_end: Optional[float] = None,
     caption_style: str = "bold_pop",
     silence_ranges: Optional[List[List[float]]] = None,
-    dense_cut: bool = False,
     crop_overrides: Optional[ClipCropOverrides] = None,
     thumbnail_overlay_path: Optional[str] = None,
+    channel_name: str = "",
 ) -> str:
     out_w, out_h = _get_output_dims(aspect_ratio)
     clips_dir = os.path.join(job_dir, "clips")
@@ -841,7 +840,7 @@ def render_clip_ffmpeg(
 
     silence_abs: List[List[float]] = []
     silence_rel: List[List[float]] = []
-    if dense_cut and silence_ranges:
+    if silence_ranges:
         for sr in silence_ranges:
             try:
                 s = max(float(sr[0]), render_start)
@@ -932,12 +931,10 @@ def render_clip_ffmpeg(
     clip_end_render = render_start + render_duration
     logger.info(
         f"Rendering {clip.id} [{render_start:.1f}s – {clip_end_render:.1f}s] "
-        f"({render_duration:.1f}s) style={caption_style} dense_cut={dense_cut and bool(silence_rel)}"
+        f"({render_duration:.1f}s) style={caption_style}"
     )
 
     audio_filters = ["loudnorm=I=-16:TP=-1.5:LRA=11"]
-    if audio_ducking:
-        logger.info("audio_ducking flag is currently a no-op (requires BG music track).")
 
     cmd = ["ffmpeg", "-y", "-progress", "pipe:1", "-nostats",
            "-ss", f"{render_start:.3f}", "-t", f"{render_duration:.3f}",
@@ -995,6 +992,64 @@ def render_clip_ffmpeg(
         except Exception as e:
             logger.warning(f"Thumbnail cover skipped for {clip.id}: {e}")
 
+    # Image watermark overlay
+    try:
+        from app.pipeline.overlay import render_image_watermark
+        import app.writable_config as _wc
+        _cfg = _wc.load()
+        _wm = _cfg.get("watermark", {})
+        if _wm.get("enabled") and _wm.get("image_path") and os.path.exists(str(_wm["image_path"])):
+            render_image_watermark(
+                output_path, output_path,
+                watermark_path=str(_wm["image_path"]),
+                pos_x=float(_wm.get("pos_x", 0.85)),
+                pos_y=float(_wm.get("pos_y", 0.05)),
+                opacity=float(_wm.get("opacity", 0.8)),
+                scale=float(_wm.get("scale", 0.12)),
+            )
+    except Exception as e:
+        logger.warning(f"Image watermark skipped for {clip.id}: {e}")
+
+    # Credit watermark overlay (YT source)
+    if channel_name:
+        try:
+            from app.pipeline.overlay import render_credit_watermark
+            import app.writable_config as _wc2
+            _cfg2 = _wc2.load()
+            _cr = _cfg2.get("credit_watermark", {})
+            if _cr.get("enabled"):
+                render_credit_watermark(
+                    output_path, output_path,
+                    channel_name=channel_name,
+                    pos_x=float(_cr.get("pos_x", 0.5)),
+                    pos_y=float(_cr.get("pos_y", 0.95)),
+                    size=float(_cr.get("size", 0.022)),
+                    opacity=float(_cr.get("opacity", 0.3)),
+                )
+        except Exception as e:
+            logger.warning(f"Credit watermark skipped for {clip.id}: {e}")
+
+    # Hook overlay (styled text per hook_style config)
+    hook_text = (clip.hook or "").strip()
+    if hook_text:
+        try:
+            from app.pipeline.overlay import render_hook_overlay
+            import app.writable_config as _wc3
+            _cfg3 = _wc3.load()
+            _hk = _cfg3.get("hook_style", {})
+            render_hook_overlay(
+                output_path, output_path,
+                hook_text=hook_text,
+                font_size=float(_hk.get("font_size", 0.045)),
+                font_color=str(_hk.get("font_color", "#00a000")),
+                bg_color=str(_hk.get("bg_color", "#FFFFFF")),
+                corner_radius=int(_hk.get("corner_radius", 8)),
+                pos_x=float(_hk.get("pos_x", 0.5)),
+                pos_y=float(_hk.get("pos_y", 0.7)),
+            )
+        except Exception as e:
+            logger.warning(f"Hook overlay skipped for {clip.id}: {e}")
+
     # Auto-generate thumbnail (best-effort; never fails the render)
     try:
         from app.pipeline.thumbnail import generate_thumbnail
@@ -1041,11 +1096,12 @@ def render_active_speaker_clip(
     job_dir: str, crop_w: int, crop_h: int, w: int, h: int,
     speaker_segments: List[Dict[str, Any]],
     all_face_boxes: List[Tuple[int, int, int, int]],
-    aspect_ratio: str, audio_ducking: bool,
+    aspect_ratio: str,
     progress_callback,
     caption_style: str = "bold_pop",
     crop_overrides: Optional[ClipCropOverrides] = None,
     thumbnail_overlay_path: Optional[str] = None,
+    channel_name: str = "",
 ) -> str:
     from app.pipeline.face_detect import detect_face_camera
     from app.pipeline.layout_engine import get_layout_params
@@ -1111,8 +1167,6 @@ def render_active_speaker_clip(
         cmd.extend(["-vf", vf, "-af", "loudnorm=I=-16:TP=-1.5:LRA=11"])
         cmd.extend(["-c:v", "libx264", "-preset", "superfast", "-crf", "22",
                     "-c:a", "aac", "-b:a", "192k"])
-        if audio_ducking:
-            logger.debug("audio_ducking no-op in active speaker render (no BG music yet)")
         cmd.append(sub_path)
 
         subprocess.run(cmd, check=True, capture_output=True, timeout=600)
@@ -1156,6 +1210,64 @@ def render_active_speaker_clip(
         except Exception as e:
             logger.warning(f"Thumbnail cover skipped for {clip.id}: {e}")
 
+    # Image watermark overlay
+    try:
+        from app.pipeline.overlay import render_image_watermark
+        import app.writable_config as _wc
+        _cfg = _wc.load()
+        _wm = _cfg.get("watermark", {})
+        if _wm.get("enabled") and _wm.get("image_path") and os.path.exists(str(_wm["image_path"])):
+            render_image_watermark(
+                output_path, output_path,
+                watermark_path=str(_wm["image_path"]),
+                pos_x=float(_wm.get("pos_x", 0.85)),
+                pos_y=float(_wm.get("pos_y", 0.05)),
+                opacity=float(_wm.get("opacity", 0.8)),
+                scale=float(_wm.get("scale", 0.12)),
+            )
+    except Exception as e:
+        logger.warning(f"Image watermark skipped for {clip.id}: {e}")
+
+    # Credit watermark overlay (YT source)
+    if channel_name:
+        try:
+            from app.pipeline.overlay import render_credit_watermark
+            import app.writable_config as _wc2
+            _cfg2 = _wc2.load()
+            _cr = _cfg2.get("credit_watermark", {})
+            if _cr.get("enabled"):
+                render_credit_watermark(
+                    output_path, output_path,
+                    channel_name=channel_name,
+                    pos_x=float(_cr.get("pos_x", 0.5)),
+                    pos_y=float(_cr.get("pos_y", 0.95)),
+                    size=float(_cr.get("size", 0.022)),
+                    opacity=float(_cr.get("opacity", 0.3)),
+                )
+        except Exception as e:
+            logger.warning(f"Credit watermark skipped for {clip.id}: {e}")
+
+    # Hook overlay (styled text per hook_style config)
+    hook_text = (clip.hook or "").strip()
+    if hook_text:
+        try:
+            from app.pipeline.overlay import render_hook_overlay
+            import app.writable_config as _wc3
+            _cfg3 = _wc3.load()
+            _hk = _cfg3.get("hook_style", {})
+            render_hook_overlay(
+                output_path, output_path,
+                hook_text=hook_text,
+                font_size=float(_hk.get("font_size", 0.045)),
+                font_color=str(_hk.get("font_color", "#00a000")),
+                bg_color=str(_hk.get("bg_color", "#FFFFFF")),
+                corner_radius=int(_hk.get("corner_radius", 8)),
+                pos_x=float(_hk.get("pos_x", 0.5)),
+                pos_y=float(_hk.get("pos_y", 0.7)),
+            )
+        except Exception as e:
+            logger.warning(f"Hook overlay skipped for {clip.id}: {e}")
+
     # Auto-generate thumbnail (best-effort)
     try:
         from app.pipeline.thumbnail import generate_thumbnail
@@ -1182,6 +1294,7 @@ def render_one_clip(
     override_layout: Optional[str] = None,
     override_caption_style: Optional[str] = None,
     progress_callback=None,
+    channel_name: str = "",
 ) -> str:
     from app.pipeline.face_detect import detect_face_camera, detect_all_faces
     from app.pipeline.layout_engine import get_layout_params
@@ -1238,18 +1351,18 @@ def render_one_clip(
 
     crop_overrides = clip.crop_overrides
 
-    if multi_speaker and sp_segments and detect_faces and not override_layout:
+    if layout_mode == "auto" and multi_speaker and sp_segments and detect_faces and not override_layout:
         clip_path = render_active_speaker_clip(
             video_path=video_path, clip=clip, segments=segments,
             job_dir=job_dir, crop_w=crop_w, crop_h=crop_h,
             w=w, h=h, speaker_segments=sp_segments,
             all_face_boxes=face_boxes,
             aspect_ratio=aspect_ratio,
-            audio_ducking=job.audio_ducking or False,
             progress_callback=progress_callback,
             caption_style=caption_style,
             crop_overrides=crop_overrides,
             thumbnail_overlay_path=clip.thumbnail_image_path,
+            channel_name=channel_name,
         )
         clip.layout_used = "Active Speaker"
         clip.facecam_detected = True
@@ -1271,14 +1384,13 @@ def render_one_clip(
             w=w, h=h, layout_params=layout_params,
             progress_callback=progress_callback,
             aspect_ratio=aspect_ratio,
-            audio_ducking=job.audio_ducking or False,
             speaker_segments=sp_segments,
             caption_style=caption_style,
             silence_ranges=job.silence_ranges or [],
-            dense_cut=bool(job.dense_cut),
             trim_start=clip.trim_start, trim_end=clip.trim_end,
             crop_overrides=crop_overrides,
             thumbnail_overlay_path=clip.thumbnail_image_path,
+            channel_name=channel_name,
         )
 
     clip.file_path = clip_path
@@ -1378,10 +1490,11 @@ def render_job_clips(
                     job_dir=job_dir, crop_w=crop_w, crop_h=crop_h,
                     w=w, h=h, speaker_segments=sp_segments,
                     all_face_boxes=face_boxes,
-                    aspect_ratio=aspect_ratio, audio_ducking=job.audio_ducking or False,
+                    aspect_ratio=aspect_ratio,
                     progress_callback=_progress,
                     caption_style=job.caption_style or "bold_pop",
                     thumbnail_overlay_path=clip.thumbnail_image_path,
+                    channel_name=job.channel_name or "",
                 )
                 clip.layout_used = "Active Speaker"
                 clip.facecam_detected = True
@@ -1403,13 +1516,12 @@ def render_job_clips(
                     w=w, h=h, layout_params=layout_params,
                     progress_callback=_progress,
                     aspect_ratio=aspect_ratio,
-                    audio_ducking=job.audio_ducking or False,
                     speaker_segments=sp_segments,
                     caption_style=job.caption_style or "bold_pop",
                     silence_ranges=job.silence_ranges or [],
-                    dense_cut=bool(job.dense_cut),
                     trim_start=clip.trim_start, trim_end=clip.trim_end,
                     thumbnail_overlay_path=clip.thumbnail_image_path,
+                    channel_name=job.channel_name or "",
                 )
 
             clip.file_path = clip_path
@@ -1417,6 +1529,8 @@ def render_job_clips(
             thumb_file = os.path.join(job_dir, "thumbnails", f"{clip.id}.jpg")
             if os.path.exists(thumb_file):
                 clip.thumbnail_url = f"/jobs/{job.id}/clips/{clip.id}/thumb"
+            from app.integrations.repliz_schedule import maybe_auto_schedule_clip
+            maybe_auto_schedule_clip(clip, job)
         except Exception as e:
             logger.error(f"Failed to render clip {clip.id}: {e}")
             continue

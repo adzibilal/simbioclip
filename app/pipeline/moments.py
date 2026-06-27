@@ -539,7 +539,7 @@ def _detect_chunk(
         logger.warning(f"Chunk {chunk_idx + 1}/{total_chunks}: failed to parse LLM response: {e}")
         return []
 
-    clips = _items_to_clips(parsed)
+    clips = _items_to_clips(parsed, dur_min, dur_max)
     return clips[:max_clips]
 
 
@@ -641,7 +641,7 @@ def detect_moments(
     return selected
 
 
-def _items_to_clips(parsed_moments: List[Dict[str, Any]]) -> List[Clip]:
+def _items_to_clips(parsed_moments: List[Dict[str, Any]], dur_min: int = 15, dur_max: int = 60) -> List[Clip]:
     """Validate raw LLM moment dicts and convert them into Clip models."""
     clips = []
     for i, item in enumerate(parsed_moments):
@@ -678,14 +678,20 @@ def _items_to_clips(parsed_moments: List[Dict[str, Any]]) -> List[Clip]:
                     if t < start or t > end or not emoji:
                         continue
                     if emoji not in allowed_emoji:
-                        # Keep only emoji from the allowed palette to avoid odd glyphs that may not render
                         continue
                     emphasis.append({"t": round(t, 2), "emoji": emoji})
 
-            # Basic validation
             duration = end - start
             if duration <= 0:
                 logger.warning(f"Clip {i} has invalid duration {duration:.1f}s. Skipping.")
+                continue
+            if duration < dur_min:
+                extend = dur_min - duration
+                end += extend
+                duration = end - start
+                logger.info(f"Clip {i} extended from {duration - extend:.1f}s to {duration:.1f}s to meet min {dur_min}s.")
+            if duration > dur_max:
+                logger.warning(f"Clip {i} duration {duration:.1f}s > max {dur_max}s. Skipping.")
                 continue
 
             clip_id = f"clip_{i+1}"

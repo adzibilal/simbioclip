@@ -1,9 +1,18 @@
-{% extends "base.html" %}
+{% extends "layouts/app_shell.html" %}
 {% block title %}SimbioClip — Studio {{ job.id[:8] }}{% endblock %}
+
+{% set job_label = (job.source_url or job.file_name or job.id[:8])[:40] %}
+{% set breadcrumbs = [
+    {"label": "Projects", "href": "/app"},
+    {"label": job_label, "href": "/app/jobs/" ~ job.id},
+    {"label": "Studio"}
+] %}
+{% set sidebar_collapsed = true %}
+{% set sidebar_collapsible = true %}
 
 {% block head_extra %}
 <style>
-    .studio-wrap { max-width: 1260px; margin: 0 auto; padding: 28px; }
+    .studio-wrap { max-width: none; margin: 0; padding: 0; }
     .studio-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
     .studio-header h1 { font-size: 20px; font-weight: 600; }
     .studio-header .back-link { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600;
@@ -111,7 +120,7 @@
 <div class="studio-wrap">
     <div class="studio-header">
         <div>
-            <a class="back-link" href="/job/{{ job.id }}">
+            <a class="back-link" href="/app/jobs/{{ job.id }}">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
                 Back to job
             </a>

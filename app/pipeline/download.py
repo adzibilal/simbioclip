@@ -6,12 +6,7 @@ import subprocess
 import threading
 import yt_dlp
 from app.models import Job
-from app.config import (
-    COOKIES_FILE,
-    COOKIES_FROM_BROWSER,
-    CONCURRENT_FRAGMENTS,
-    THROTTLED_RATE,
-)
+from app.settings_store import get_settings
 
 logger = logging.getLogger("simbioclip.pipeline.download")
 
@@ -25,14 +20,15 @@ def _refresh_cookies():
     """
     chrome_profile = "/app/data/chrome-profile"
     cookie_db = os.path.join(chrome_profile, "Default", "Cookies")
-    if not os.path.exists(cookie_db) or not COOKIES_FILE:
+    cookies_file = get_settings().cookies_file
+    if not os.path.exists(cookie_db) or not cookies_file:
         logger.info("Cookie refresh skipped: no Chrome profile or COOKIES_FILE not set")
         return
     try:
         args = [
             "yt-dlp",
             "--cookies-from-browser", f"chrome:{chrome_profile}",
-            "--cookies", COOKIES_FILE,
+            "--cookies", cookies_file,
             "--skip-download",
             "--quiet",
             "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
@@ -109,6 +105,7 @@ def _start_size_watcher(job: Job, job_dir: str, total_bytes: int, stop_event: th
 
 def _estimate_total_bytes(source_url: str, ydl_opts: dict, clip_start, clip_end) -> int:
     """Probe total download size using yt-dlp's info extraction (no download)."""
+    cookies_file = get_settings().cookies_file
     probe_opts = {
         "quiet": True,
         "no_warnings": True,
@@ -117,11 +114,11 @@ def _estimate_total_bytes(source_url: str, ydl_opts: dict, clip_start, clip_end)
         "skip_download": True,
         "js_runtimes": {"node": {}},
     }
-    if COOKIES_FILE and os.path.exists(COOKIES_FILE):
-        with open(COOKIES_FILE) as _f:
+    if cookies_file and os.path.exists(cookies_file):
+        with open(cookies_file) as _f:
             _content = _f.read()
         if any(_line.strip() and '\t' in _line for _line in _content.splitlines()):
-            probe_opts["cookiefile"] = COOKIES_FILE
+            probe_opts["cookiefile"] = cookies_file
     try:
         with yt_dlp.YoutubeDL(probe_opts) as ydl:
             info = ydl.extract_info(source_url, download=False)
@@ -159,11 +156,43 @@ def _resolve_format(resolution: str) -> str:
     )
 
 
+def _capture_channel_info(job: Job, source_url: str) -> None:
+    """Extract channel name/URL from yt-dlp metadata and persist on the job."""
+    try:
+        probe_opts = {
+            "quiet": True,
+            "no_warnings": True,
+            "noplaylist": True,
+            "skip_download": True,
+            "js_runtimes": {"node": {}},
+        }
+        cf = get_settings().cookies_file
+        if cf and os.path.exists(cf):
+            with open(cf) as _f:
+                _c = _f.read()
+            if any(_l.strip() and '\t' in _l for _l in _c.splitlines()):
+                probe_opts["cookiefile"] = cf
+        with yt_dlp.YoutubeDL(probe_opts) as ydl:
+            info = ydl.extract_info(source_url, download=False)
+        channel = info.get("channel") or info.get("uploader") or ""
+        channel_url = info.get("channel_url") or info.get("uploader_url") or ""
+        if channel:
+            job.channel_name = channel
+            job.channel_url = channel_url
+            job.save()
+            logger.info(f"Channel info: {channel} ({channel_url})")
+    except Exception as e:
+        logger.warning(f"Could not extract channel info: {e}")
+
+
 def download_job_video(job: Job) -> str:
     job_dir = job.get_dir()
+    settings = get_settings()
 
     if job.source_url:
         logger.info(f"Starting download for URL: {job.source_url}")
+
+        _capture_channel_info(job, job.source_url)
 
         ydl_opts = {
             "format": _resolve_format(job.download_resolution),
@@ -179,8 +208,8 @@ def download_job_video(job: Job) -> str:
             "file_access_retries": 5,
             "extractor_retries": 3,
             "socket_timeout": 60,
-            "concurrent_fragment_downloads": CONCURRENT_FRAGMENTS,
-            "throttled_rate": THROTTLED_RATE,
+            "concurrent_fragment_downloads": settings.concurrent_fragments,
+            "throttled_rate": settings.throttled_rate,
             "js_runtimes": {"node": {}},
             "retry_sleep_functions": {
                 "http": lambda n: min(2 ** n, 30),
@@ -188,12 +217,12 @@ def download_job_video(job: Job) -> str:
             },
         }
 
-        if COOKIES_FILE and os.path.exists(COOKIES_FILE):
-            with open(COOKIES_FILE) as f:
+        if settings.cookies_file and os.path.exists(settings.cookies_file):
+            with open(settings.cookies_file) as f:
                 content = f.read()
             if any(line.strip() and '\t' in line for line in content.splitlines()):
-                ydl_opts["cookiefile"] = COOKIES_FILE
-                logger.info(f"Using cookies file: {COOKIES_FILE}")
+                ydl_opts["cookiefile"] = settings.cookies_file
+                logger.info(f"Using cookies file: {settings.cookies_file}")
         # Browser-derived cookies are extracted to COOKIES_FILE by manage.py auth.
         # Direct cookiesfrombrowser is not used here because Chrome's persistent
         # profile doesn't survive container restarts; the extracted flat file does.
@@ -227,8 +256,8 @@ def download_job_video(job: Job) -> str:
             if "Sign in" in err_msg:
                 logger.info("Auth failed — refreshing cookies and retrying once...")
                 _refresh_cookies()
-                if "cookiefile" not in ydl_opts and COOKIES_FILE:
-                    ydl_opts["cookiefile"] = COOKIES_FILE
+                if "cookiefile" not in ydl_opts and settings.cookies_file:
+                    ydl_opts["cookiefile"] = settings.cookies_file
                 try:
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         ydl.download([job.source_url])
