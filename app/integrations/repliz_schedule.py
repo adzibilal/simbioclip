@@ -30,7 +30,9 @@ def _default_schedule_payload(
     account_id: str,
     schedule_at: datetime,
     tags: Optional[List[str]] = None,
+    custom_thumb_enabled: bool = True,
 ) -> Dict[str, Any]:
+    use_thumb = custom_thumb_enabled and bool(thumb_url)
     return {
         "title": title or "",
         "description": description or "",
@@ -39,9 +41,9 @@ def _default_schedule_payload(
         "medias": [
             {
                 "alt": "",
-                "customThumbnail": bool(thumb_url),
+                "customThumbnail": use_thumb,
                 "type": "video",
-                "thumbnail": thumb_url,
+                "thumbnail": thumb_url if use_thumb else "",
                 "url": video_url,
             }
         ],
@@ -81,6 +83,7 @@ def schedule_clip(
     tags: Optional[List[str]] = None,
     account_name: Optional[str] = None,
     settings: Optional[AppSettings] = None,
+    custom_thumb_enabled: bool = True,
 ) -> str:
     settings = settings or get_settings()
     _validate_repliz_config(settings)
@@ -117,6 +120,7 @@ def schedule_clip(
         account_id=account_id,
         schedule_at=schedule_at,
         tags=tags,
+        custom_thumb_enabled=custom_thumb_enabled,
     )
 
     client = ReplizClient(settings.repliz_access_key, settings.repliz_secret_key)
@@ -156,14 +160,29 @@ def schedule_clip_to_accounts(
     if not account_ids:
         raise ReplizError("Select at least one Repliz account.")
 
+    settings = settings or get_settings()
     account_names = account_names or {}
     scheduled: List[Dict[str, str]] = []
     errors: List[str] = []
+
+    account_platforms: Dict[str, str] = {}
+    try:
+        client = ReplizClient(settings.repliz_access_key, settings.repliz_secret_key)
+        accounts_data = client.list_accounts()
+        for acc in accounts_data.get("docs", []):
+            aid = str(acc.get("_id") or "")
+            platform = (acc.get("type") or acc.get("platform") or "").lower()
+            if aid:
+                account_platforms[aid] = platform
+    except Exception as e:
+        logger.warning(f"Could not fetch account platforms for thumbnail filter: {e}")
 
     for account_id in account_ids:
         aid = str(account_id).strip()
         if not aid:
             continue
+        platform = account_platforms.get(aid, "")
+        is_youtube = platform == "youtube"
         try:
             schedule_id = schedule_clip(
                 clip,
@@ -176,6 +195,7 @@ def schedule_clip_to_accounts(
                 tags=tags,
                 account_name=account_names.get(aid),
                 settings=settings,
+                custom_thumb_enabled=not is_youtube,
             )
             scheduled.append({"account_id": aid, "schedule_id": schedule_id})
         except ReplizError as e:
