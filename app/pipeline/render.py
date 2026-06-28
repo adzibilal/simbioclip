@@ -908,7 +908,7 @@ def render_clip_ffmpeg(
            "-i", video_path]
 
     if vf.startswith("[0:v]"):
-        fc = vf
+        fc = f"{vf}[vout]"
     else:
         fc = f"[0:v]{vf}[vout]"
     af = ",".join(audio_filters)
