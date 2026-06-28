@@ -387,6 +387,96 @@ async def api_schedule_clip_repliz(
     return {"ok": True, **result, "html": html}
 
 
+@app.post("/api/jobs/{job_id}/repliz/bulk-schedule")
+async def api_bulk_schedule_repliz(
+    job_id: str,
+    request: Request,
+    _: str = Depends(verify_token),
+):
+    job = Job.load(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    body = await request.json()
+    clip_ids = body.get("clip_ids") or []
+    if not clip_ids:
+        raise HTTPException(status_code=400, detail="Select at least one clip")
+
+    start_at_str = body.get("start_at")
+    if not start_at_str:
+        raise HTTPException(status_code=400, detail="start_at is required")
+
+    interval_minutes = int(body.get("interval_minutes") or 120)
+    if interval_minutes < 5:
+        raise HTTPException(status_code=400, detail="interval_minutes must be at least 5")
+
+    account_ids = body.get("account_ids") or []
+    if not account_ids:
+        raise HTTPException(status_code=400, detail="Select at least one account")
+
+    post_type = body.get("post_type")
+    title_template = body.get("title") or ""
+    description_template = body.get("description") or ""
+    account_names = body.get("account_names") or {}
+
+    from datetime import datetime, timedelta, timezone
+    from app.integrations.repliz import ReplizError
+    from app.integrations.repliz_schedule import schedule_clip
+
+    try:
+        start_at = datetime.fromisoformat(start_at_str.replace("Z", "+00:00"))
+        if start_at.tzinfo is None:
+            start_at = start_at.replace(tzinfo=timezone.utc)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid start_at datetime")
+
+    # Match clip_ids to actual clips, sorted by clip.start
+    clips_map = {c.id: c for c in job.clips}
+    resolved_clips = []
+    for cid in clip_ids:
+        clip = clips_map.get(cid)
+        if clip and clip.download_url:
+            resolved_clips.append(clip)
+    resolved_clips.sort(key=lambda c: c.start)
+
+    scheduled = []
+    errors = []
+
+    for i, clip in enumerate(resolved_clips):
+        schedule_at = start_at + timedelta(minutes=i * interval_minutes)
+        title = title_template.replace("{{n}}", str(i + 1)).replace("{{N}}", str(i + 1))
+        if not title:
+            title = clip.title or ""
+
+        for account_id in account_ids:
+            aid = str(account_id).strip()
+            if not aid:
+                continue
+            try:
+                schedule_id = schedule_clip(
+                    clip,
+                    job,
+                    account_id=aid,
+                    schedule_at=schedule_at,
+                    post_type=post_type,
+                    title=title,
+                    description=description_template,
+                    account_name=account_names.get(aid),
+                    settings=get_settings(),
+                )
+                scheduled.append({
+                    "clip_id": clip.id,
+                    "account_id": aid,
+                    "schedule_id": schedule_id,
+                    "schedule_at": schedule_at.isoformat(),
+                })
+            except ReplizError as e:
+                errors.append(f"{clip.title} ({aid}): {e}")
+
+    html = render_template_str("partials/job_detail.html", job=job, api_token=get_settings().api_token)
+    return {"ok": True, "scheduled": scheduled, "errors": errors, "html": html}
+
+
 # WebSocket — real-time job updates
 @app.websocket("/ws/job/{job_id}")
 async def websocket_job_updates(websocket: WebSocket, job_id: str):

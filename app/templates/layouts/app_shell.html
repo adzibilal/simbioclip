@@ -132,6 +132,72 @@
         </div>
     </div>
 
+    <!-- Bulk schedule modal -->
+    <div id="bulk-backdrop" class="bulk-backdrop" style="display:none;">
+        <div class="bulk-modal">
+            <div class="bulk-modal-hdr">
+                <span class="bm-title">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:16px;height:16px;"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    Bulk Schedule to Repliz
+                </span>
+                <button class="bm-close" onclick="closeBulkModal()">&times;</button>
+            </div>
+            <div class="bulk-modal-body">
+                <div class="bulk-row">
+                    <div class="bulk-field">
+                        <label for="bulk-post-type">Post type</label>
+                        <select id="bulk-post-type">
+                            <option value="video">Video</option>
+                            <option value="reel">Reel</option>
+                            <option value="story">Story</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="bulk-row">
+                    <div class="bulk-field">
+                        <label for="bulk-start">Start schedule</label>
+                        <input type="datetime-local" id="bulk-start">
+                        <span style="font-size:11px;color:var(--steel);font-weight:600;">WIB (GMT+7)</span>
+                    </div>
+                    <div class="bulk-field" style="flex:0 0 120px;">
+                        <label for="bulk-interval">Interval</label>
+                        <div style="display:flex;align-items:center;gap:6px;">
+                            <input type="number" id="bulk-interval" min="5" max="10080" value="120" style="width:80px;">
+                            <span class="bulk-interval-unit">min</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bulk-field">
+                    <label>Accounts</label>
+                    <div id="bulk-accounts-list" style="border:1px solid var(--hairline-strong);border-radius:8px;padding:8px;max-height:160px;overflow-y:auto;">
+                        <span style="font-size:12px;color:var(--steel);">Loading accounts…</span>
+                    </div>
+                    <div style="display:flex;gap:8px;margin-top:4px;">
+                        <button type="button" class="bulk-clear" onclick="bulkSelectAllAccounts()">Select all</button>
+                        <button type="button" class="bulk-clear" onclick="bulkClearAccounts()">Clear</button>
+                    </div>
+                </div>
+                <div class="bulk-field">
+                    <label for="bulk-title">Title</label>
+                    <input type="text" id="bulk-title" placeholder="Leave empty to use each clip's title">
+                </div>
+                <div class="bulk-field">
+                    <label for="bulk-desc">Description</label>
+                    <textarea id="bulk-desc" rows="2" placeholder="Leave empty to use each clip's hook"></textarea>
+                </div>
+                <div id="bulk-schedule-preview" style="background:var(--surface);border:1px solid var(--hairline);border-radius:8px;padding:8px 10px;font-size:11px;color:var(--steel);display:none;"></div>
+                <div id="bulk-error" class="bulk-error"></div>
+            </div>
+            <div class="bulk-footer">
+                <button class="bulk-btn-cancel" onclick="closeBulkModal()">Cancel</button>
+                <button class="bulk-btn-submit" id="bulk-submit-btn" onclick="submitBulkSchedule()">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                    Schedule All
+                </button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast-notif" class="toast">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#00B85C" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>
@@ -391,6 +457,203 @@
                 })
                 .catch(err => showToast(err.message || 'Upload failed', true))
                 .finally(() => { btn.disabled = false; btn.textContent = 'Upload to Repliz'; });
+        }
+
+        // ===== BULK SCHEDULE =====
+        var bulkSelectedClips = {};
+        var bulkAccounts = [];
+
+        function bulkToggleClip(cb) {
+            var card = document.getElementById('clip-card-' + cb.value);
+            if (cb.checked) {
+                bulkSelectedClips[cb.value] = parseFloat(cb.dataset.start);
+                if (card) card.classList.add('is-selected');
+            } else {
+                delete bulkSelectedClips[cb.value];
+                if (card) card.classList.remove('is-selected');
+            }
+            updateBulkBar();
+        }
+
+        function updateBulkBar() {
+            var ids = Object.keys(bulkSelectedClips);
+            var bar = document.getElementById('bulk-action-bar');
+            if (!bar) return;
+            bar.style.display = ids.length > 0 ? 'flex' : 'none';
+            document.getElementById('bulk-count').textContent = ids.length + ' selected';
+        }
+
+        function bulkClearSelection() {
+            bulkSelectedClips = {};
+            document.querySelectorAll('.rz-clip-check').forEach(function(cb) {
+                cb.checked = false;
+                var card = document.getElementById('clip-card-' + cb.value);
+                if (card) card.classList.remove('is-selected');
+            });
+            updateBulkBar();
+        }
+
+        function openBulkScheduleModal() {
+            var ids = Object.keys(bulkSelectedClips);
+            if (!ids.length) { showToast('Select at least one clip', true); return; }
+
+            // Set default schedule time: next hour
+            var dt = new Date(Date.now() + 60 * 60 * 1000);
+            dt.setMinutes(0, 0, 0);
+            var local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000);
+            document.getElementById('bulk-start').value = local.toISOString().slice(0, 16);
+            document.getElementById('bulk-interval').value = 120;
+            document.getElementById('bulk-title').value = '';
+            document.getElementById('bulk-desc').value = '';
+            hideBulkError();
+
+            // Load accounts
+            loadBulkAccounts();
+
+            // Show preview
+            updateBulkPreview();
+
+            document.getElementById('bulk-backdrop').style.display = 'flex';
+        }
+
+        function closeBulkModal() {
+            document.getElementById('bulk-backdrop').style.display = 'none';
+        }
+
+        function loadBulkAccounts() {
+            var box = document.getElementById('bulk-accounts-list');
+            box.innerHTML = '<span style="font-size:12px;color:var(--steel);">Loading…</span>';
+            fetch('/api/repliz/accounts', { credentials: 'same-origin' })
+                .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+                .then(function(res) {
+                    if (!res.ok) throw new Error(res.d.detail || 'Failed');
+                    bulkAccounts = res.d.docs || [];
+                    renderBulkAccounts();
+                })
+                .catch(function(e) {
+                    box.innerHTML = '<span style="font-size:12px;color:var(--accent-pink);">' + (e.message || 'Error') + '</span>';
+                });
+        }
+
+        function renderBulkAccounts() {
+            var box = document.getElementById('bulk-accounts-list');
+            if (!bulkAccounts.length) {
+                box.innerHTML = '<span style="font-size:12px;color:var(--steel);">No accounts — connect in Repliz first</span>';
+                return;
+            }
+            box.innerHTML = bulkAccounts.map(function(a) {
+                var name = a.name || a.username || a._id;
+                var platform = (a.type || a.platform || '').toLowerCase();
+                return '<label style="display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;cursor:pointer;">' +
+                    '<input type="checkbox" name="bulk-account" value="' + a._id + '" checked ' +
+                    'data-name="' + (name || '').replace(/"/g, '&quot;') + '">' +
+                    '<span style="font-weight:600;">' + name + '</span>' +
+                    '<span style="font-size:10px;color:var(--steel);">(' + platform + ')</span>' +
+                    '</label>';
+            }).join('');
+        }
+
+        function bulkSelectAllAccounts() {
+            document.querySelectorAll('#bulk-accounts-list input[name="bulk-account"]').forEach(function(el) { el.checked = true; });
+        }
+
+        function bulkClearAccounts() {
+            document.querySelectorAll('#bulk-accounts-list input[name="bulk-account"]').forEach(function(el) { el.checked = false; });
+        }
+
+        function updateBulkPreview() {
+            var ids = Object.keys(bulkSelectedClips);
+            var startVal = document.getElementById('bulk-start').value;
+            var interval = parseInt(document.getElementById('bulk-interval').value) || 120;
+            if (!startVal || !ids.length) { document.getElementById('bulk-schedule-preview').style.display = 'none'; return; }
+
+            var sortedIds = ids.slice().sort(function(a, b) { return bulkSelectedClips[a] - bulkSelectedClips[b]; });
+            var startDate = new Date(startVal);
+            var lines = sortedIds.map(function(clipId, i) {
+                var dt = new Date(startDate.getTime() + i * interval * 60000);
+                var pad = function(n) { return String(n).padStart(2, '0'); };
+                var ts = dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate()) +
+                    ' ' + pad(dt.getHours()) + ':' + pad(dt.getMinutes());
+                return 'Clip ' + (i + 1) + ' → ' + ts + ' WIB';
+            });
+            document.getElementById('bulk-schedule-preview').innerHTML = '<div style="font-weight:600;margin-bottom:4px;">Schedule preview:</div>' + lines.join('<br>');
+            document.getElementById('bulk-schedule-preview').style.display = 'block';
+        }
+
+        // Update preview when start/interval changes
+        document.getElementById('bulk-start').addEventListener('change', updateBulkPreview);
+        document.getElementById('bulk-interval').addEventListener('input', updateBulkPreview);
+
+        function showBulkError(msg) { var e = document.getElementById('bulk-error'); e.textContent = msg; e.style.display = 'block'; }
+        function hideBulkError() { var e = document.getElementById('bulk-error'); e.textContent = ''; e.style.display = 'none'; }
+
+        function submitBulkSchedule() {
+            var ids = Object.keys(bulkSelectedClips);
+            if (!ids.length) { showBulkError('Select at least one clip.'); return; }
+
+            var startVal = document.getElementById('bulk-start').value;
+            if (!startVal) { showBulkError('Set a start schedule time.'); return; }
+
+            var interval = parseInt(document.getElementById('bulk-interval').value);
+            if (!interval || interval < 5) { showBulkError('Interval must be at least 5 minutes.'); return; }
+
+            var checked = Array.from(document.querySelectorAll('#bulk-accounts-list input[name="bulk-account"]:checked'));
+            if (!checked.length) { showBulkError('Select at least one account.'); return; }
+
+            hideBulkError();
+            var btn = document.getElementById('bulk-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner" style="width:12px;height:12px;display:inline-block;vertical-align:middle;margin-right:5px;border-color:rgba(255,255,255,.3);border-top-color:#fff;"></span>Scheduling…';
+
+            var accountIds = checked.map(function(el) { return el.value; });
+            var accountNames = {};
+            checked.forEach(function(el) { accountNames[el.value] = el.getAttribute('data-name') || el.value; });
+
+            // Sort clip_ids by start time
+            var sortedIds = ids.slice().sort(function(a, b) { return bulkSelectedClips[a] - bulkSelectedClips[b]; });
+
+            var jobId = window.location.pathname.match(/\/app\/jobs\/([^\/]+)/);
+            jobId = jobId ? jobId[1] : null;
+            if (!jobId) { showBulkError('Could not determine job ID.'); btn.disabled = false; return; }
+
+            var payload = {
+                clip_ids: sortedIds,
+                start_at: new Date(startVal).toISOString(),
+                interval_minutes: interval,
+                account_ids: accountIds,
+                account_names: accountNames,
+                post_type: document.getElementById('bulk-post-type').value,
+                title: document.getElementById('bulk-title').value.trim(),
+                description: document.getElementById('bulk-desc').value.trim(),
+            };
+
+            fetch('/api/jobs/' + jobId + '/repliz/bulk-schedule', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+            })
+                .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, d: d }; }); })
+                .then(function(res) {
+                    if (!res.ok) throw new Error(res.d.detail || 'Bulk schedule failed');
+                    var d = res.d;
+                    var count = (d.scheduled || []).length;
+                    var errCount = (d.errors || []).length;
+                    var msg = 'Bulk scheduled ' + count + ' clip' + (count !== 1 ? 's' : '');
+                    if (errCount) msg += ' (' + errCount + ' skipped)';
+                    showToast(msg);
+
+                    // Refresh job detail
+                    var body = document.getElementById('job-detail-body');
+                    if (body && d.html) {
+                        body.innerHTML = d.html;
+                    }
+                    closeBulkModal();
+                    bulkSelectedClips = {};
+                    updateBulkBar();
+                })
+                .catch(function(err) { showBulkError(err.message || 'Bulk schedule failed'); })
+                .finally(function() { btn.disabled = false; btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg> Schedule All'; });
         }
     </script>
     <script src="/static/js/app-shell.js"></script>
