@@ -151,13 +151,29 @@
         <div class="tab-panel" data-tab="content">
             {% if job.clips %}
             <div class="clips-panel">
+                <div id="bulk-action-bar" class="bulk-action-bar" style="display:none;">
+                    <span class="bulk-count" id="bulk-count">0 selected</span>
+                    <button class="bulk-clear" onclick="bulkClearSelection()">Clear</button>
+                    <button class="bulk-btn" id="bulk-schedule-btn" onclick="openBulkScheduleModal()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                        Bulk Schedule
+                    </button>
+                </div>
                 <div class="clips-grid">
                     {% for clip in job.clips %}
                     {% set clip_src = clip.download_url ~ '?token=' ~ api_token %}
                     {% set custom_thumb_url = '/api/jobs/' ~ job.id ~ '/clips/' ~ clip.id ~ '/custom-thumbnail-image?token=' ~ api_token %}
                     {% set thumb_src = custom_thumb_url if clip.thumbnail_image_path else ((clip.thumbnail_url ~ '?token=' ~ api_token) if clip.thumbnail_url else '') %}
-                    <article class="clip-card">
+                    <article class="clip-card" id="clip-card-{{ clip.id }}">
                         <div class="clip-media">
+                            {% if clip.download_url %}
+                            <label class="clip-select-check" onclick="event.stopPropagation()">
+                                <input type="checkbox" class="rz-clip-check" value="{{ clip.id }}" data-start="{{ clip.start }}" onchange="bulkToggleClip(this)">
+                                <span class="check-mark">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                                </span>
+                            </label>
+                            {% endif %}
                             {% if clip.download_url %}
                             <div class="clip-video-wrap" data-url="{{ clip_src }}" data-title="{{ clip.title }}" onclick="openClipModal(this)">
                                 <video src="{{ clip_src }}#t=0.5" {% if thumb_src %}poster="{{ thumb_src }}"{% endif %} preload="metadata" muted playsinline></video>
