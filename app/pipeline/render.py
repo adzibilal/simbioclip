@@ -716,23 +716,6 @@ def build_podcast_stack_filter(face_boxes: List[Tuple[int,int,int,int]],
 
 # --- Rendering ---
 
-def _build_silence_skip_filter_complex(
-    layout_vf: str,
-    silence_rel: List[List[float]],
-    audio_filters: List[str],
-) -> Tuple[str, str, str]:
-    range_expr = "+".join(f"between(t,{s:.3f},{e:.3f})" for s, e in silence_rel)
-    v_select = f"select='not({range_expr})',setpts=N/FRAME_RATE/TB"
-    a_select = f"aselect='not({range_expr})',asetpts=N/SR/TB"
-    if layout_vf.startswith("[0:v]"):
-        layout_v = layout_vf.replace("[0:v]", f"[0:v]{v_select},", 1) + "[vout]"
-    else:
-        layout_v = f"[0:v]{v_select},{layout_vf}[vout]"
-    a_chain = ",".join([a_select] + list(audio_filters))
-    audio_v = f"[0:a]{a_chain}[aout]"
-    return f"{layout_v};{audio_v}", "[vout]", "[aout]"
-
-
 # Seconds the uploaded thumbnail is shown as a cover/intro card before the clip.
 THUMBNAIL_COVER_DURATION = 0.2
 
@@ -819,7 +802,6 @@ def render_clip_ffmpeg(
     trim_start: Optional[float] = None,
     trim_end: Optional[float] = None,
     caption_style: str = "bold_pop",
-    silence_ranges: Optional[List[List[float]]] = None,
     crop_overrides: Optional[ClipCropOverrides] = None,
     thumbnail_overlay_path: Optional[str] = None,
     channel_name: str = "",
@@ -838,21 +820,7 @@ def render_clip_ffmpeg(
     elif trim_end is not None:
         render_duration = trim_end - clip.start
 
-    silence_abs: List[List[float]] = []
-    silence_rel: List[List[float]] = []
-    if silence_ranges:
-        for sr in silence_ranges:
-            try:
-                s = max(float(sr[0]), render_start)
-                e = min(float(sr[1]), render_start + render_duration)
-            except (TypeError, ValueError, IndexError):
-                continue
-            if e - s > 0.2:
-                silence_abs.append([round(s, 3), round(e, 3)])
-                silence_rel.append([round(s - render_start, 3), round(e - render_start, 3)])
-
     lt = layout_params.get("type") if layout_params else None
-    # The BG-Blur layout paints the clip title as a persistent top bar.
     persistent_title = clip.title if lt == "bg_blur" else None
 
     generate_ass_file(
@@ -860,7 +828,6 @@ def render_clip_ffmpeg(
         speaker_segments=speaker_segments, out_w=out_w, out_h=out_h,
         render_start=render_start,
         caption_style=caption_style,
-        silence_ranges_in_clip=silence_abs,
         emphasis=clip.emphasis or [],
         subtitle_style=clip.subtitle_style,
         persistent_title=persistent_title,
@@ -940,11 +907,13 @@ def render_clip_ffmpeg(
            "-ss", f"{render_start:.3f}", "-t", f"{render_duration:.3f}",
            "-i", video_path]
 
-    if silence_rel:
-        fc, vout, aout = _build_silence_skip_filter_complex(vf, silence_rel, audio_filters)
-        cmd.extend(["-filter_complex", fc, "-map", vout, "-map", aout])
+    if vf.startswith("[0:v]"):
+        fc = vf
     else:
-        cmd.extend(["-vf", vf, "-af", ",".join(audio_filters)])
+        fc = f"[0:v]{vf}[vout]"
+    af = ",".join(audio_filters)
+    ac = f"[0:a]{af}[aout]"
+    cmd.extend(["-filter_complex", f"{fc};{ac}", "-map", "[vout]", "-map", "[aout]"])
 
     cmd.extend(["-c:v", "libx264", "-preset", "superfast", "-crf", "22",
                 "-c:a", "aac", "-b:a", "192k"])
@@ -1386,7 +1355,6 @@ def render_one_clip(
             aspect_ratio=aspect_ratio,
             speaker_segments=sp_segments,
             caption_style=caption_style,
-            silence_ranges=job.silence_ranges or [],
             trim_start=clip.trim_start, trim_end=clip.trim_end,
             crop_overrides=crop_overrides,
             thumbnail_overlay_path=clip.thumbnail_image_path,
@@ -1518,7 +1486,6 @@ def render_job_clips(
                     aspect_ratio=aspect_ratio,
                     speaker_segments=sp_segments,
                     caption_style=job.caption_style or "bold_pop",
-                    silence_ranges=job.silence_ranges or [],
                     trim_start=clip.trim_start, trim_end=clip.trim_end,
                     thumbnail_overlay_path=clip.thumbnail_image_path,
                     channel_name=job.channel_name or "",
